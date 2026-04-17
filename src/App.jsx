@@ -1297,17 +1297,27 @@ const styles = {
     borderRadius: "24px",
     boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
   },
-  title: {
-    margin: 0,
-    fontSize: "58px",
-    color: "#b91c1c",
-    fontWeight: "bold",
-  },
-  subtitle: {
-    marginTop: "12px",
-    color: "#6b7280",
-    fontSize: "22px",
-  },
+
+
+
+title: {
+  margin: 0,
+  fontSize: "clamp(30px, 8vw, 58px)",
+  color: "#b91c1c",
+  fontWeight: "bold",
+  lineHeight: 1.15,
+  wordBreak: "break-word",
+},
+
+subtitle: {
+  marginTop: "12px",
+  color: "#6b7280",
+  fontSize: "clamp(16px, 4.5vw, 22px)",
+  lineHeight: 1.4,
+  wordBreak: "break-word",
+},
+
+
   card: {
     background: "#ffffff",
     borderRadius: "20px",
