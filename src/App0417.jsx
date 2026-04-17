@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Solar } from "lunar-javascript";
 import * as OpenCC from "opencc-js";
 import { jsPDF } from "jspdf";
@@ -378,11 +378,8 @@ export default function App() {
   const [selectedMonth, setSelectedMonth] = useState(defaultMonth);
   const [selectedDate, setSelectedDate] = useState(defaultDate);
   const [purpose, setPurpose] = useState("marriage");
-
   const [copyMessage, setCopyMessage] = useState("");
   const [isExportingYear, setIsExportingYear] = useState(false);
-  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
-
 
   const pdfCoverRef = useRef(null);
   const pdfSummaryRef = useRef(null);
@@ -430,24 +427,12 @@ export default function App() {
     }
   }, [selectedYear]);
 
-
   const yearlyMonths = useMemo(() => {
     return Array.from({ length: 12 }, (_, i) => ({
       month: i + 1,
       cells: buildCalendarCells(selectedYear, i + 1, purpose),
     }));
   }, [selectedYear, purpose]);
-
-useEffect(() => {
-  const handleResize = () => {
-    setIsMobile(window.innerWidth <= 768);
-  };
-
-  handleResize();
-  window.addEventListener("resize", handleResize);
-  return () => window.removeEventListener("resize", handleResize);
-}, []);
-
 
   async function captureCanvas(element) {
     return html2canvas(element, {
@@ -742,210 +727,110 @@ for (let i = 0; i < yearMonthRefs.current.length; i += 1) {
           {copyMessage ? <div style={styles.copyMessage}>{copyMessage}</div> : null}
         </section>
 
-
-<section style={styles.card} ref={calendarPrintRef}>
-  <div style={styles.sectionTitle}>
-    {selectedYear} 年 {selectedMonth} 月總覽
-  </div>
-
-  {isMobile ? (
-    <div style={styles.mobileCalendarList}>
-      {calendarCells
-        .filter((item) => item.type === "day")
-        .map((item) => {
-          const isRed = item.data.isWeekend || Boolean(item.data.holidayName);
-
-          return (
-            <button
-              key={item.date}
-              onClick={() => setSelectedDate(item.date)}
-              style={{
-                ...styles.mobileDayCard,
-                ...(selectedDate === item.date ? styles.mobileDayCardActive : {}),
-                borderColor:
-                  item.result.level === "適合"
-                    ? "#86efac"
-                    : item.result.level === "普通"
-                    ? "#fcd34d"
-                    : "#fca5a5",
-                background:
-                  item.result.level === "適合"
-                    ? "#f0fdf4"
-                    : item.result.level === "普通"
-                    ? "#fffbeb"
-                    : "#fef2f2",
-              }}
-            >
-              <div style={styles.mobileDayLeft}>
-                <div style={styles.mobileDayTopRow}>
-                  <div
-                    style={{
-                      ...styles.mobileDayNumber,
-                      color: isRed ? "#dc2626" : "#111827",
-                    }}
-                  >
-                    {item.day}
-                  </div>
-                  <div
-                    style={{
-                      ...styles.mobileDayBadge,
-                      background:
-                        item.result.level === "適合"
-                          ? "#dcfce7"
-                          : item.result.level === "普通"
-                          ? "#fef3c7"
-                          : "#fee2e2",
-                      color:
-                        item.result.level === "適合"
-                          ? "#166534"
-                          : item.result.level === "普通"
-                          ? "#92400e"
-                          : "#991b1b",
-                    }}
-                  >
-                    {item.result.level}
-                  </div>
-                </div>
-
-                <div
-                  style={{
-                    ...styles.mobileDayWeek,
-                    color: isRed ? "#dc2626" : "#6b7280",
-                  }}
-                >
-                  {item.weekday}
-                </div>
-
-                <div
-                  style={{
-                    ...styles.mobileDayLunar,
-                    color: isRed ? "#dc2626" : "#374151",
-                  }}
-                >
-                  {item.data.lunarDate}
-                </div>
-
-                {item.data.holidayName ? (
-                  <div style={styles.mobileDayHoliday}>{item.data.holidayName}</div>
-                ) : null}
-
-                {item.data.solarTerm ? (
-                  <div style={styles.mobileDaySolarTerm}>{item.data.solarTerm}</div>
-                ) : null}
-              </div>
-
-              <div style={styles.mobileDayRight}>
-                <div style={styles.mobileDayResult}>{item.result.title}</div>
-                <div style={styles.mobileDayHint}>點一下看詳細資訊</div>
-              </div>
-            </button>
-          );
-        })}
-    </div>
-  ) : (
-    <>
-      <div style={styles.weekdayHeader}>
-        {["日", "一", "二", "三", "四", "五", "六"].map((d) => (
-          <div key={d} style={styles.weekdayCell}>
-            {d}
+        <section style={styles.card} ref={calendarPrintRef}>
+          <div style={styles.sectionTitle}>
+            {selectedYear} 年 {selectedMonth} 月總覽
           </div>
-        ))}
-      </div>
 
-      <div style={styles.monthGrid}>
-        {calendarCells.map((item, index) => {
-          if (item.type === "empty") {
-            return <div key={`empty-${index}`} style={styles.emptyDayCell} />;
-          }
+          <div style={styles.weekdayHeader}>
+            {["日", "一", "二", "三", "四", "五", "六"].map((d) => (
+              <div key={d} style={styles.weekdayCell}>
+                {d}
+              </div>
+            ))}
+          </div>
 
-          const isRed = item.data.isWeekend || Boolean(item.data.holidayName);
+          <div style={styles.monthGrid}>
+            {calendarCells.map((item, index) => {
+              if (item.type === "empty") {
+                return <div key={`empty-${index}`} style={styles.emptyDayCell} />;
+              }
 
-          return (
-            <button
-              key={item.date}
-              onClick={() => setSelectedDate(item.date)}
-              style={{
-                ...styles.dayCard,
-                ...(selectedDate === item.date ? styles.dayCardActive : {}),
-                borderColor:
-                  item.result.level === "適合"
-                    ? "#86efac"
-                    : item.result.level === "普通"
-                    ? "#fcd34d"
-                    : "#fca5a5",
-                background:
-                  item.result.level === "適合"
-                    ? "#f0fdf4"
-                    : item.result.level === "普通"
-                    ? "#fffbeb"
-                    : "#fef2f2",
-              }}
-            >
-              <div style={styles.dayTopRow}>
-                <div
+              const isRed = item.data.isWeekend || Boolean(item.data.holidayName);
+
+              return (
+                <button
+                  key={item.date}
+                  onClick={() => setSelectedDate(item.date)}
                   style={{
-                    ...styles.dayNumber,
-                    color: isRed ? "#dc2626" : "#111827",
-                  }}
-                >
-                  {item.day}
-                </div>
-                <div
-                  style={{
-                    ...styles.dayBadge,
+                    ...styles.dayCard,
+                    ...(selectedDate === item.date ? styles.dayCardActive : {}),
+                    borderColor:
+                      item.result.level === "適合"
+                        ? "#86efac"
+                        : item.result.level === "普通"
+                        ? "#fcd34d"
+                        : "#fca5a5",
                     background:
                       item.result.level === "適合"
-                        ? "#dcfce7"
+                        ? "#f0fdf4"
                         : item.result.level === "普通"
-                        ? "#fef3c7"
-                        : "#fee2e2",
-                    color:
-                      item.result.level === "適合"
-                        ? "#166534"
-                        : item.result.level === "普通"
-                        ? "#92400e"
-                        : "#991b1b",
+                        ? "#fffbeb"
+                        : "#fef2f2",
                   }}
                 >
-                  {item.result.level}
-                </div>
-              </div>
+                  <div style={styles.dayTopRow}>
+                    <div
+                      style={{
+                        ...styles.dayNumber,
+                        color: isRed ? "#dc2626" : "#111827",
+                      }}
+                    >
+                      {item.day}
+                    </div>
+                    <div
+                      style={{
+                        ...styles.dayBadge,
+                        background:
+                          item.result.level === "適合"
+                            ? "#dcfce7"
+                            : item.result.level === "普通"
+                            ? "#fef3c7"
+                            : "#fee2e2",
+                        color:
+                          item.result.level === "適合"
+                            ? "#166534"
+                            : item.result.level === "普通"
+                            ? "#92400e"
+                            : "#991b1b",
+                      }}
+                    >
+                      {item.result.level}
+                    </div>
+                  </div>
 
-              <div
-                style={{
-                  ...styles.dayWeek,
-                  color: isRed ? "#dc2626" : "#6b7280",
-                }}
-              >
-                {item.weekday}
-              </div>
+                  <div
+                    style={{
+                      ...styles.dayWeek,
+                      color: isRed ? "#dc2626" : "#6b7280",
+                    }}
+                  >
+                    {item.weekday}
+                  </div>
 
-              <div
-                style={{
-                  ...styles.dayLunar,
-                  color: isRed ? "#dc2626" : "#374151",
-                }}
-              >
-                {item.data.lunarDate}
-              </div>
+                  <div
+                    style={{
+                      ...styles.dayLunar,
+                      color: isRed ? "#dc2626" : "#374151",
+                    }}
+                  >
+                    {item.data.lunarDate}
+                  </div>
 
-              {item.data.holidayName ? (
-                <div style={styles.dayHoliday}>{item.data.holidayName}</div>
-              ) : null}
+                  {item.data.holidayName ? (
+                    <div style={styles.dayHoliday}>{item.data.holidayName}</div>
+                  ) : null}
 
-              {item.data.solarTerm ? (
-                <div style={styles.daySolarTerm}>{item.data.solarTerm}</div>
-              ) : null}
+                  {item.data.solarTerm ? (
+                    <div style={styles.daySolarTerm}>{item.data.solarTerm}</div>
+                  ) : null}
 
-              <div style={styles.dayMiniText}>{item.result.title}</div>
-            </button>
-          );
-        })}
-      </div>
-    </>
-  )}
-</section>
-
+                  <div style={styles.dayMiniText}>{item.result.title}</div>
+                </button>
+              );
+            })}
+          </div>
+        </section>
 
         <section style={styles.resultCard}>
           <div style={styles.sectionTitle}>所選日期詳細判斷</div>
@@ -1475,97 +1360,11 @@ const styles = {
     color: "#2563eb",
     marginBottom: "4px",
   },
-
   dayMiniText: {
     fontSize: "15px",
     color: "#4b5563",
     lineHeight: 1.5,
   },
-
-mobileCalendarList: {
-  display: "grid",
-  gap: "14px",
-},
-mobileDayCard: {
-  width: "100%",
-  border: "2px solid #e5e7eb",
-  borderRadius: "20px",
-  padding: "16px",
-  textAlign: "left",
-  cursor: "pointer",
-  boxSizing: "border-box",
-  display: "flex",
-  alignItems: "stretch",
-  justifyContent: "space-between",
-  gap: "14px",
-},
-mobileDayCardActive: {
-  boxShadow: "0 0 0 3px rgba(185, 28, 28, 0.15)",
-},
-mobileDayLeft: {
-  flex: 1,
-  minWidth: 0,
-},
-mobileDayRight: {
-  width: "110px",
-  display: "flex",
-  flexDirection: "column",
-  justifyContent: "space-between",
-  alignItems: "flex-end",
-  textAlign: "right",
-},
-mobileDayTopRow: {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  marginBottom: "8px",
-  gap: "10px",
-},
-mobileDayNumber: {
-  fontSize: "34px",
-  fontWeight: "bold",
-  lineHeight: 1,
-},
-mobileDayBadge: {
-  padding: "6px 10px",
-  borderRadius: "999px",
-  fontSize: "14px",
-  fontWeight: "bold",
-  whiteSpace: "nowrap",
-},
-mobileDayWeek: {
-  fontSize: "16px",
-  marginBottom: "6px",
-},
-mobileDayLunar: {
-  fontSize: "20px",
-  fontWeight: "bold",
-  marginBottom: "8px",
-},
-mobileDayHoliday: {
-  fontSize: "15px",
-  fontWeight: "bold",
-  color: "#dc2626",
-  marginBottom: "4px",
-},
-mobileDaySolarTerm: {
-  fontSize: "15px",
-  fontWeight: "bold",
-  color: "#2563eb",
-  marginBottom: "4px",
-},
-mobileDayResult: {
-  fontSize: "18px",
-  fontWeight: "bold",
-  color: "#374151",
-  lineHeight: 1.45,
-},
-mobileDayHint: {
-  fontSize: "13px",
-  color: "#6b7280",
-},
-
-
   resultTop: {
     display: "flex",
     gap: "18px",
