@@ -1,10 +1,28 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+// 商業版 PDF 封面＋全年輸出版 App.jsx
+// 需先安裝：npm install lunar-javascript opencc-js jspdf html2canvas
+
+import { useMemo, useRef, useState } from "react";
 import { Solar } from "lunar-javascript";
 import * as OpenCC from "opencc-js";
 import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
 
 const toTraditional = OpenCC.Converter({ from: "cn", to: "tw" });
+
+function fixTraditional(text) {
+  return text
+    .replace(/母仓/g, "母倉")
+    .replace(/天仓/g, "天倉")
+    .replace(/仓/g, "倉")
+    .replace(/龙/g, "龍")
+    .replace(/鸣/g, "鳴")
+    .replace(/醜/g, "丑");
+}
+
+function toTwText(value) {
+  if (value === null || value === undefined || value === "") return "";
+  return fixTraditional(toTraditional(String(value)));
+}
 
 const PURPOSE_LABELS = {
   marriage: "結婚",
@@ -27,346 +45,6 @@ const CHINESE_MONTHS = [
   "十二月",
 ];
 
-function fixTraditional(text) {
-  return String(text)
-    .replace(/母仓/g, "母倉")
-    .replace(/天仓/g, "天倉")
-    .replace(/仓/g, "倉")
-    .replace(/龙/g, "龍")
-    .replace(/鸣/g, "鳴")
-    .replace(/醜/g, "丑");
-}
-
-function toTwText(value) {
-  if (value === null || value === undefined || value === "") return "";
-  return fixTraditional(toTraditional(String(value)));
-}
-
-function formatDateForInput(date) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
-function formatDateDisplay(dateStr) {
-  const [y, m, d] = dateStr.split("-");
-  return `${y} / ${m} / ${d}`;
-}
-
-function getWeekday(dateStr) {
-  const date = new Date(dateStr);
-  const weeks = ["星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"];
-  return weeks[date.getDay()];
-}
-
-function isWeekendDate(dateStr) {
-  const day = new Date(dateStr).getDay();
-  return day === 0 || day === 6;
-}
-
-function splitItems(text) {
-  if (!text) return [];
-  return String(text)
-    .split(/[.。、,，；; ]+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
-
-function getTaiwanHolidayName(dateStr, lunar) {
-  const [, m, d] = dateStr.split("-").map(Number);
-
-  const solarHolidayMap = {
-    "01-01": "元旦",
-    "02-28": "和平紀念日",
-    "04-04": "兒童節",
-    "10-10": "國慶日",
-    "12-25": "行憲紀念日",
-  };
-
-  const solarKey = `${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-  if (solarHolidayMap[solarKey]) return solarHolidayMap[solarKey];
-
-  const lunarMonth = lunar.getMonth();
-  const lunarDay = lunar.getDay();
-
-  if (lunarMonth === 1 && lunarDay === 1) return "春節";
-  if (lunarMonth === 1 && lunarDay === 15) return "元宵節";
-  if (lunarMonth === 5 && lunarDay === 5) return "端午節";
-  if (lunarMonth === 7 && lunarDay === 7) return "七夕";
-  if (lunarMonth === 8 && lunarDay === 15) return "中秋節";
-  if (lunarMonth === 9 && lunarDay === 9) return "重陽節";
-  if (lunarMonth === 12 && lunarDay === 8) return "臘八";
-  if (lunarMonth === 12 && lunarDay === 24) return "送神";
-  if (lunarMonth === 12 && lunarDay >= 29) return "除夕";
-
-  return "";
-}
-
-function buildGoodHours(lunar) {
-  const times = ["子", "丑", "寅", "卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥"];
-  const ranges = {
-    子: "23:00 - 00:59",
-    丑: "01:00 - 02:59",
-    寅: "03:00 - 04:59",
-    卯: "05:00 - 06:59",
-    辰: "07:00 - 08:59",
-    巳: "09:00 - 10:59",
-    午: "11:00 - 12:59",
-    未: "13:00 - 14:59",
-    申: "15:00 - 16:59",
-    酉: "17:00 - 18:59",
-    戌: "19:00 - 20:59",
-    亥: "21:00 - 22:59",
-  };
-
-  const luckMap = {};
-  const timeList = lunar.getTimes ? lunar.getTimes() : [];
-
-  timeList.forEach((t) => {
-    const zhi = t.getZhi ? t.getZhi() : "";
-    const status = t.getTianShenLuck ? t.getTianShenLuck() : "";
-    luckMap[zhi] = status;
-  });
-
-  const result = times
-    .filter((zhi) => {
-      const status = luckMap[zhi];
-      return status === "吉" || status === "貴" || status === "大吉";
-    })
-    .map((zhi) => ({
-      time: `${zhi}時 ${ranges[zhi]}`,
-      desc: "依黃曆時辰換算",
-      level: toTwText(luckMap[zhi] || "吉"),
-    }));
-
-  return result.length
-    ? result
-    : [{ time: "—", desc: "此日未取得吉時資料", level: "—" }];
-}
-
-function getRealHuangliData(dateStr) {
-  const [y, m, d] = dateStr.split("-").map(Number);
-  const solar = Solar.fromYmd(y, m, d);
-  const lunar = solar.getLunar();
-
-  const yi = splitItems(lunar.getDayYi ? lunar.getDayYi() : "");
-  const ji = splitItems(lunar.getDayJi ? lunar.getDayJi() : "");
-
-  const eightChar = lunar.getEightChar ? lunar.getEightChar() : null;
-  const jie = lunar.getJie ? lunar.getJie() : "";
-  const qi = lunar.getQi ? lunar.getQi() : "";
-  const pengzuGan = lunar.getPengZuGan ? lunar.getPengZuGan() : "";
-  const pengzuZhi = lunar.getPengZuZhi ? lunar.getPengZuZhi() : "";
-  const dayPositionTai = lunar.getPositionTai ? lunar.getPositionTai() : "";
-  const dayPositionDesc = lunar.getPositionDesc ? lunar.getPositionDesc() : "";
-  const jiShen = lunar.getDayJiShen ? lunar.getDayJiShen() : [];
-  const chong = lunar.getChong ? lunar.getChong() : "";
-  const sha = lunar.getSha ? lunar.getSha() : "";
-  const zhiXing = lunar.getZhiXing ? lunar.getZhiXing() : "";
-  const nayin = lunar.getNaYin ? lunar.getNaYin() : "";
-  const holidayName = getTaiwanHolidayName(dateStr, lunar);
-  const isWeekend = isWeekendDate(dateStr);
-
-  return {
-    solarDate: formatDateDisplay(dateStr),
-    weekday: getWeekday(dateStr),
-    lunarDate: toTwText(`${lunar.getMonthInChinese()}月${lunar.getDayInChinese()}`),
-    zodiac: toTwText(`${lunar.getDayShengXiao()}日沖${chong || "—"}`),
-    wuxing: toTwText(
-      nayin || (eightChar && eightChar.getYearWuXing ? eightChar.getYearWuXing() : "—")
-    ),
-    solarTerm: toTwText(jie || qi || ""),
-    holidayName: toTwText(holidayName || ""),
-    isWeekend,
-    fortune: yi.length >= ji.length ? "吉" : "平",
-    clash: toTwText(`${chong || "—"}・${sha || "—"}`),
-    taishen: toTwText(
-      `${dayPositionTai || ""}${dayPositionDesc ? `（${dayPositionDesc}）` : ""}` || "—"
-    ),
-    zhishen: toTwText(Array.isArray(jiShen) && jiShen.length ? jiShen.join("、") : "—"),
-    jianchu: toTwText(zhiXing || "—"),
-    pengzu: toTwText(`${pengzuGan} ${pengzuZhi}`.trim() || "—"),
-    goodList: yi.length ? yi.map(toTwText) : ["無資料"],
-    badList: ji.length ? ji.map(toTwText) : ["無資料"],
-    goodHours: buildGoodHours(lunar),
-  };
-}
-
-function containsAny(list, keywords) {
-  return keywords.some((keyword) => list.includes(keyword));
-}
-
-function evaluatePurpose(data, purpose) {
-  const good = data.goodList;
-  const bad = data.badList;
-
-  if (purpose === "marriage") {
-    const hasGood = containsAny(good, ["嫁娶", "納采", "訂盟", "祈福"]);
-    const hasBad = containsAny(bad, ["嫁娶", "破土", "安葬"]);
-
-    if (hasGood && !hasBad) {
-      return {
-        level: "適合",
-        title: "適合結婚",
-        description: "宜中包含婚嫁相關項目，且忌中無明顯衝突。",
-        reasons: ["宜中有婚嫁類項目", "忌中未見明顯婚嫁衝突", "可列入婚禮參考日期"],
-      };
-    }
-
-    if (!hasGood && hasBad) {
-      return {
-        level: "不建議",
-        title: "不建議結婚",
-        description: "忌中有婚嫁衝突，較不適合安排。",
-        reasons: ["忌中含婚嫁衝突項目", "不利婚禮與提親安排", "建議改查其他日期"],
-      };
-    }
-
-    return {
-      level: "普通",
-      title: "可列入參考",
-      description: "沒有明顯大凶，但婚嫁吉象不算特別強。",
-      reasons: ["婚嫁吉項普通", "忌中無強烈衝突", "可再與其他日期比較"],
-    };
-  }
-
-  if (purpose === "moving") {
-    const hasGood = containsAny(good, ["入宅", "移徙", "安床"]);
-    const hasBad = containsAny(bad, ["入宅", "移徙", "動土", "安門"]);
-
-    if (hasGood && !hasBad) {
-      return {
-        level: "適合",
-        title: "適合搬家",
-        description: "宜中對搬家入宅有利，忌中衝突少。",
-        reasons: ["宜中包含入宅/移徙/安床", "忌中未見明顯搬家禁忌", "可作為搬家參考"],
-      };
-    }
-
-    if (!hasGood && hasBad) {
-      return {
-        level: "不建議",
-        title: "不建議搬家",
-        description: "忌中與搬家用途有明顯衝突。",
-        reasons: ["忌中含入宅/移徙/動土/安門", "不利居家遷移", "建議改選其他日期"],
-      };
-    }
-
-    return {
-      level: "普通",
-      title: "可列入參考",
-      description: "沒有大衝突，但也不是最理想日期。",
-      reasons: ["搬家吉項普通", "忌中無強烈相沖", "可做備選日期"],
-    };
-  }
-
-  const hasGood = containsAny(good, ["開市", "交易", "立券", "納財", "開工"]);
-  const hasBad = containsAny(bad, ["開市", "交易", "詞訟", "訴訟"]);
-
-  if (hasGood && !hasBad) {
-    return {
-      level: "適合",
-      title: "適合開工",
-      description: "宜中包含商務與開工相關項目，整體有利。",
-      reasons: ["宜中包含開市/交易/立券/納財", "忌中未見明顯開工衝突", "適合作為開工參考"],
-    };
-  }
-
-  if (!hasGood && hasBad) {
-    return {
-      level: "不建議",
-      title: "不建議開工",
-      description: "忌中對商務用途較不利。",
-      reasons: ["忌中可能有交易/詞訟/訴訟", "不利商務推進", "建議改查其他日期"],
-    };
-  }
-
-  return {
-    level: "普通",
-    title: "可列入參考",
-    description: "商務吉象普通，可做備選日期。",
-    reasons: ["商業相關宜項一般", "忌中無太強衝突", "適合再比較其他日期"],
-  };
-}
-
-function buildCalendarCells(year, month, purpose) {
-  const totalDays = new Date(year, month, 0).getDate();
-  const firstDayWeek = new Date(year, month - 1, 1).getDay();
-  const cells = [];
-
-  for (let i = 0; i < firstDayWeek; i += 1) {
-    cells.push({ type: "empty" });
-  }
-
-  for (let day = 1; day <= totalDays; day += 1) {
-    const date = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-    const data = getRealHuangliData(date);
-    const result = evaluatePurpose(data, purpose);
-
-    cells.push({
-      type: "day",
-      date,
-      day,
-      weekday: data.weekday,
-      data,
-      result,
-    });
-  }
-
-  while (cells.length % 7 !== 0) {
-    cells.push({ type: "empty" });
-  }
-
-  return cells;
-}
-
-function buildYearOptions(currentYear) {
-  const years = [];
-  for (let y = currentYear - 2; y <= currentYear + 3; y += 1) {
-    years.push(y);
-  }
-  return years;
-}
-
-function buildExportText(year, month, purpose, luckyDays) {
-  const title = `${year} 年 ${month} 月 ${PURPOSE_LABELS[purpose]}吉日列表`;
-  const lines = [title, ""];
-
-  if (luckyDays.length === 0) {
-    lines.push("本月沒有篩選出適合的日期。");
-    return lines.join("\n");
-  }
-
-  luckyDays.forEach((item, index) => {
-    lines.push(
-      `${index + 1}. ${item.data.solarDate}（${item.data.weekday}）｜${item.data.lunarDate}｜${item.result.title}${item.data.holidayName ? `｜${item.data.holidayName}` : ""}${item.data.solarTerm ? `｜${item.data.solarTerm}` : ""}`
-    );
-  });
-
-  return lines.join("\n");
-}
-
-function InfoItem({ icon, label, value }) {
-  return (
-    <div style={styles.infoItem}>
-      <div style={styles.infoLabel}>
-        <span style={styles.infoIcon}>{icon}</span>
-        <span>{label}</span>
-      </div>
-      <div style={styles.infoValue}>{value}</div>
-    </div>
-  );
-}
-
-function AdvancedItem({ label, value }) {
-  return (
-    <div style={styles.advancedItem}>
-      <div style={styles.advancedLabel}>{label}</div>
-      <div style={styles.advancedValue}>{value}</div>
-    </div>
-  );
-}
 
 export default function App() {
   const today = new Date();
@@ -378,14 +56,12 @@ export default function App() {
   const [selectedMonth, setSelectedMonth] = useState(defaultMonth);
   const [selectedDate, setSelectedDate] = useState(defaultDate);
   const [purpose, setPurpose] = useState("marriage");
-
   const [copyMessage, setCopyMessage] = useState("");
   const [isExportingYear, setIsExportingYear] = useState(false);
-  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
-
 
   const pdfCoverRef = useRef(null);
   const pdfSummaryRef = useRef(null);
+  const pdfMonthRef = useRef(null);
   const calendarPrintRef = useRef(null);
   const yearCoverRef = useRef(null);
   const yearMonthRefs = useRef([]);
@@ -412,25 +88,6 @@ export default function App() {
     return buildExportText(selectedYear, selectedMonth, purpose, luckyDays);
   }, [selectedYear, selectedMonth, purpose, luckyDays]);
 
-  const yearInfo = useMemo(() => {
-    try {
-      const solar = Solar.fromYmd(selectedYear, 6, 1);
-      const lunar = solar.getLunar();
-
-      return {
-        ganzhi: toTwText(lunar.getYearInGanZhi()),
-        zodiac: toTwText(lunar.getYearShengXiao()),
-      };
-    } catch (e) {
-      console.error("yearInfo error:", e);
-      return {
-        ganzhi: "",
-        zodiac: "",
-      };
-    }
-  }, [selectedYear]);
-
-
   const yearlyMonths = useMemo(() => {
     return Array.from({ length: 12 }, (_, i) => ({
       month: i + 1,
@@ -438,125 +95,22 @@ export default function App() {
     }));
   }, [selectedYear, purpose]);
 
-useEffect(() => {
-  const handleResize = () => {
-    setIsMobile(window.innerWidth <= 768);
-  };
-
-  handleResize();
-  window.addEventListener("resize", handleResize);
-  return () => window.removeEventListener("resize", handleResize);
-}, []);
-
-
-  async function captureCanvas(element) {
-    return html2canvas(element, {
-
-
-      useCORS: true,
-      backgroundColor: "#ffffff",
-      scrollX: 0,
-      scrollY: 0,
-    });
-  }
-
-function addCanvasAsPages(pdf, canvas, isFirstPage = false) {
-  const pageWidthMm = 210;
-  const pageHeightMm = 297;
-  const marginMm = 8;
-
-  const usableWidthMm = pageWidthMm - marginMm * 2;
-  const usableHeightMm = pageHeightMm - marginMm * 2;
-
-  const scale = usableWidthMm / canvas.width;
-  const pageSliceHeightPx = Math.floor(usableHeightMm / scale);
-
-  let renderedHeightPx = 0;
-  let pageIndex = 0;
-
-  while (renderedHeightPx < canvas.height) {
-    const sliceHeightPx = Math.min(
-      pageSliceHeightPx,
-      canvas.height - renderedHeightPx
-    );
-
-    const pageCanvas = document.createElement("canvas");
-    pageCanvas.width = canvas.width;
-    pageCanvas.height = sliceHeightPx;
-
-    const ctx = pageCanvas.getContext("2d");
-    if (!ctx) {
-      throw new Error("無法建立 PDF 畫布內容");
+  const yearInfo = useMemo(() => {
+    try {
+      const solar = Solar.fromYmd(selectedYear, 6, 1);
+      const lunar = solar.getLunar();
+      return {
+        ganzhi: toTwText(lunar.getYearInGanZhi()),
+        zodiac: toTwText(lunar.getYearShengXiao()),
+      };
+    } catch (error) {
+      console.error("yearInfo error:", error);
+      return {
+        ganzhi: "",
+        zodiac: "",
+      };
     }
-
-    ctx.drawImage(
-      canvas,
-      0,
-      renderedHeightPx,
-      canvas.width,
-      sliceHeightPx,
-      0,
-      0,
-      canvas.width,
-      sliceHeightPx
-    );
-
-    const imgData = pageCanvas.toDataURL("image/png");
-    const sliceHeightMm = sliceHeightPx * scale;
-
-    if (!(isFirstPage && pageIndex === 0)) {
-      pdf.addPage();
-    }
-
-    pdf.addImage(
-      imgData,
-      "PNG",
-      marginMm,
-      marginMm,
-      usableWidthMm,
-      sliceHeightMm
-    );
-
-    renderedHeightPx += sliceHeightPx;
-    pageIndex += 1;
-  }
-}
-
-function addCanvasSinglePage(pdf, canvas, isFirstPage = false) {
-  const pageWidthMm = 210;
-  const pageHeightMm = 297;
-  const marginMm = 8;
-
-  const usableWidthMm = pageWidthMm - marginMm * 2;
-  const usableHeightMm = pageHeightMm - marginMm * 2;
-
-  const imgWidth = canvas.width;
-  const imgHeight = canvas.height;
-
-  const ratio = Math.min(
-    usableWidthMm / imgWidth,
-    usableHeightMm / imgHeight
-  );
-
-  const renderWidth = imgWidth * ratio;
-  const renderHeight = imgHeight * ratio;
-
-  const x = (pageWidthMm - renderWidth) / 2;
-  const y = (pageHeightMm - renderHeight) / 2;
-
-  if (!isFirstPage) {
-    pdf.addPage();
-  }
-
-  pdf.addImage(
-    canvas.toDataURL("image/png"),
-    "PNG",
-    x,
-    y,
-    renderWidth,
-    renderHeight
-  );
-}
+  }, [selectedYear]);
 
   async function handleCopy() {
     try {
@@ -582,15 +136,101 @@ function addCanvasSinglePage(pdf, canvas, isFirstPage = false) {
     URL.revokeObjectURL(url);
   }
 
+  async function captureCanvas(element) {
+    return html2canvas(element, {
+      scale: 3,
+      useCORS: true,
+      backgroundColor: "#ffffff",
+      scrollX: 0,
+      scrollY: 0,
+    });
+  }
+
+  function addCanvasAsPages(pdf, canvas, isFirstPage = false) {
+    const pageWidthMm = 210;
+    const pageHeightMm = 297;
+    const marginMm = 8;
+
+    const usableWidthMm = pageWidthMm - marginMm * 2;
+    const usableHeightMm = pageHeightMm - marginMm * 2;
+
+    const scale = usableWidthMm / canvas.width;
+    const pageSliceHeightPx = Math.floor(usableHeightMm / scale);
+
+    let renderedHeightPx = 0;
+    let pageIndex = 0;
+
+    while (renderedHeightPx < canvas.height) {
+      const sliceHeightPx = Math.min(pageSliceHeightPx, canvas.height - renderedHeightPx);
+
+      const pageCanvas = document.createElement("canvas");
+      pageCanvas.width = canvas.width;
+      pageCanvas.height = sliceHeightPx;
+
+      const ctx = pageCanvas.getContext("2d");
+      if (!ctx) {
+        throw new Error("無法建立 PDF 畫布內容");
+      }
+
+      ctx.drawImage(
+        canvas,
+        0,
+        renderedHeightPx,
+        canvas.width,
+        sliceHeightPx,
+        0,
+        0,
+        canvas.width,
+        sliceHeightPx
+      );
+
+      const imgData = pageCanvas.toDataURL("image/png");
+      const sliceHeightMm = sliceHeightPx * scale;
+
+      if (!(isFirstPage && pageIndex === 0)) {
+        pdf.addPage();
+      }
+
+      pdf.addImage(imgData, "PNG", marginMm, marginMm, usableWidthMm, sliceHeightMm);
+
+      renderedHeightPx += sliceHeightPx;
+      pageIndex += 1;
+    }
+  }
+
+  function addCanvasSinglePage(pdf, canvas, isFirstPage = false) {
+    const pageWidthMm = 210;
+    const pageHeightMm = 297;
+    const marginMm = 8;
+
+    const usableWidthMm = pageWidthMm - marginMm * 2;
+    const usableHeightMm = pageHeightMm - marginMm * 2;
+
+    const imgWidth = canvas.width;
+    const imgHeight = canvas.height;
+    const ratio = Math.min(usableWidthMm / imgWidth, usableHeightMm / imgHeight);
+
+    const renderWidth = imgWidth * ratio;
+    const renderHeight = imgHeight * ratio;
+    const x = (pageWidthMm - renderWidth) / 2;
+    const y = (pageHeightMm - renderHeight) / 2;
+
+    if (!isFirstPage) {
+      pdf.addPage();
+    }
+
+    pdf.addImage(canvas.toDataURL("image/png"), "PNG", x, y, renderWidth, renderHeight);
+  }
+
   async function handleDownloadPdf() {
     try {
-      if (!pdfCoverRef.current || !pdfSummaryRef.current || !calendarPrintRef.current) {
+      if (!pdfCoverRef.current || !pdfSummaryRef.current || !pdfMonthRef.current) {
         throw new Error("找不到 PDF 區塊");
       }
 
       const coverCanvas = await captureCanvas(pdfCoverRef.current);
       const summaryCanvas = await captureCanvas(pdfSummaryRef.current);
-      const calendarCanvas = await captureCanvas(calendarPrintRef.current);
+      const monthCanvas = await captureCanvas(pdfMonthRef.current);
 
       const pdf = new jsPDF({
         orientation: "p",
@@ -598,10 +238,9 @@ function addCanvasSinglePage(pdf, canvas, isFirstPage = false) {
         format: "a4",
       });
 
-addCanvasSinglePage(pdf, coverCanvas, true);
-addCanvasSinglePage(pdf, summaryCanvas, false);
-addCanvasAsPages(pdf, calendarCanvas, false);
-
+      addCanvasSinglePage(pdf, coverCanvas, true);
+      addCanvasSinglePage(pdf, summaryCanvas, false);
+      addCanvasSinglePage(pdf, monthCanvas, false);
 
       pdf.save(
         `${selectedYear}-${String(selectedMonth).padStart(2, "0")}-${PURPOSE_LABELS[purpose]}吉日報告-商業版.pdf`
@@ -626,16 +265,15 @@ addCanvasAsPages(pdf, calendarCanvas, false);
         format: "a4",
       });
 
-const coverCanvas = await captureCanvas(yearCoverRef.current);
-addCanvasSinglePage(pdf, coverCanvas, true);
+      const coverCanvas = await captureCanvas(yearCoverRef.current);
+      addCanvasSinglePage(pdf, coverCanvas, true);
 
-for (let i = 0; i < yearMonthRefs.current.length; i += 1) {
-  const element = yearMonthRefs.current[i];
-  if (!element) continue;
-  const canvas = await captureCanvas(element);
-  addCanvasSinglePage(pdf, canvas, false);
-}
-
+      for (let i = 0; i < yearMonthRefs.current.length; i += 1) {
+        const el = yearMonthRefs.current[i];
+        if (!el) continue;
+        const canvas = await captureCanvas(el);
+        addCanvasSinglePage(pdf, canvas, false);
+      }
 
       pdf.save(`${selectedYear}-${PURPOSE_LABELS[purpose]}全年農民曆-商業版.pdf`);
     } catch (error) {
@@ -709,6 +347,10 @@ for (let i = 0; i < yearMonthRefs.current.length; i += 1) {
               </select>
             </div>
           </div>
+
+          <div style={styles.supportNote}>
+            目前支援年份：2000 ～ 2050。網站版可直接查詢，商業版 PDF 支援單月與全年輸出。
+          </div>
         </section>
 
         <section style={{ ...styles.card, ...styles.exportCard }}>
@@ -742,214 +384,113 @@ for (let i = 0; i < yearMonthRefs.current.length; i += 1) {
           {copyMessage ? <div style={styles.copyMessage}>{copyMessage}</div> : null}
         </section>
 
-
-<section style={styles.card} ref={calendarPrintRef}>
-  <div style={styles.sectionTitle}>
-    {selectedYear} 年 {selectedMonth} 月總覽
-  </div>
-
-  {isMobile ? (
-    <div style={styles.mobileCalendarList}>
-      {calendarCells
-        .filter((item) => item.type === "day")
-        .map((item) => {
-          const isRed = item.data.isWeekend || Boolean(item.data.holidayName);
-
-          return (
-            <button
-              key={item.date}
-              onClick={() => setSelectedDate(item.date)}
-              style={{
-                ...styles.mobileDayCard,
-                ...(selectedDate === item.date ? styles.mobileDayCardActive : {}),
-                borderColor:
-                  item.result.level === "適合"
-                    ? "#86efac"
-                    : item.result.level === "普通"
-                    ? "#fcd34d"
-                    : "#fca5a5",
-                background:
-                  item.result.level === "適合"
-                    ? "#f0fdf4"
-                    : item.result.level === "普通"
-                    ? "#fffbeb"
-                    : "#fef2f2",
-              }}
-            >
-              <div style={styles.mobileDayLeft}>
-                <div style={styles.mobileDayTopRow}>
-                  <div
-                    style={{
-                      ...styles.mobileDayNumber,
-                      color: isRed ? "#dc2626" : "#111827",
-                    }}
-                  >
-                    {item.day}
-                  </div>
-                  <div
-                    style={{
-                      ...styles.mobileDayBadge,
-                      background:
-                        item.result.level === "適合"
-                          ? "#dcfce7"
-                          : item.result.level === "普通"
-                          ? "#fef3c7"
-                          : "#fee2e2",
-                      color:
-                        item.result.level === "適合"
-                          ? "#166534"
-                          : item.result.level === "普通"
-                          ? "#92400e"
-                          : "#991b1b",
-                    }}
-                  >
-                    {item.result.level}
-                  </div>
-                </div>
-
-                <div
-                  style={{
-                    ...styles.mobileDayWeek,
-                    color: isRed ? "#dc2626" : "#6b7280",
-                  }}
-                >
-                  {item.weekday}
-                </div>
-
-                <div
-                  style={{
-                    ...styles.mobileDayLunar,
-                    color: isRed ? "#dc2626" : "#374151",
-                  }}
-                >
-                  {item.data.lunarDate}
-                </div>
-
-                {item.data.holidayName ? (
-                  <div style={styles.mobileDayHoliday}>{item.data.holidayName}</div>
-                ) : null}
-
-                {item.data.solarTerm ? (
-                  <div style={styles.mobileDaySolarTerm}>{item.data.solarTerm}</div>
-                ) : null}
-              </div>
-
-              <div style={styles.mobileDayRight}>
-                <div style={styles.mobileDayResult}>{item.result.title}</div>
-                <div style={styles.mobileDayHint}>點一下看詳細資訊</div>
-              </div>
-            </button>
-          );
-        })}
-    </div>
-  ) : (
-    <>
-      <div style={styles.weekdayHeader}>
-        {["日", "一", "二", "三", "四", "五", "六"].map((d) => (
-          <div key={d} style={styles.weekdayCell}>
-            {d}
+        <section style={styles.card} ref={calendarPrintRef}>
+          <div style={styles.sectionTitle}>
+            {selectedYear} 年 {selectedMonth} 月總覽
           </div>
-        ))}
-      </div>
 
-      <div style={styles.monthGrid}>
-        {calendarCells.map((item, index) => {
-          if (item.type === "empty") {
-            return <div key={`empty-${index}`} style={styles.emptyDayCell} />;
-          }
+          <div style={styles.weekdayHeader}>
+            {["日", "一", "二", "三", "四", "五", "六"].map((d) => (
+              <div key={d} style={styles.weekdayCell}>
+                {d}
+              </div>
+            ))}
+          </div>
 
-          const isRed = item.data.isWeekend || Boolean(item.data.holidayName);
+          <div style={styles.monthGrid}>
+            {calendarCells.map((item, index) => {
+              if (item.type === "empty") {
+                return <div key={`empty-${index}`} style={styles.emptyDayCell} />;
+              }
 
-          return (
-            <button
-              key={item.date}
-              onClick={() => setSelectedDate(item.date)}
-              style={{
-                ...styles.dayCard,
-                ...(selectedDate === item.date ? styles.dayCardActive : {}),
-                borderColor:
-                  item.result.level === "適合"
-                    ? "#86efac"
-                    : item.result.level === "普通"
-                    ? "#fcd34d"
-                    : "#fca5a5",
-                background:
-                  item.result.level === "適合"
-                    ? "#f0fdf4"
-                    : item.result.level === "普通"
-                    ? "#fffbeb"
-                    : "#fef2f2",
-              }}
-            >
-              <div style={styles.dayTopRow}>
-                <div
+              const isRed = item.data.isWeekend || Boolean(item.data.holidayName);
+
+              return (
+                <button
+                  key={item.date}
+                  onClick={() => setSelectedDate(item.date)}
                   style={{
-                    ...styles.dayNumber,
-                    color: isRed ? "#dc2626" : "#111827",
-                  }}
-                >
-                  {item.day}
-                </div>
-                <div
-                  style={{
-                    ...styles.dayBadge,
+                    ...styles.dayCard,
+                    ...(selectedDate === item.date ? styles.dayCardActive : {}),
+                    borderColor:
+                      item.result.level === "適合"
+                        ? "#86efac"
+                        : item.result.level === "普通"
+                        ? "#fcd34d"
+                        : "#fca5a5",
                     background:
                       item.result.level === "適合"
-                        ? "#dcfce7"
+                        ? "#f0fdf4"
                         : item.result.level === "普通"
-                        ? "#fef3c7"
-                        : "#fee2e2",
-                    color:
-                      item.result.level === "適合"
-                        ? "#166534"
-                        : item.result.level === "普通"
-                        ? "#92400e"
-                        : "#991b1b",
+                        ? "#fffbeb"
+                        : "#fef2f2",
                   }}
                 >
-                  {item.result.level}
-                </div>
-              </div>
+                  <div style={styles.dayTopRow}>
+                    <div
+                      style={{
+                        ...styles.dayNumber,
+                        color: isRed ? "#dc2626" : "#111827",
+                      }}
+                    >
+                      {item.day}
+                    </div>
+                    <div
+                      style={{
+                        ...styles.dayBadge,
+                        background:
+                          item.result.level === "適合"
+                            ? "#dcfce7"
+                            : item.result.level === "普通"
+                            ? "#fef3c7"
+                            : "#fee2e2",
+                        color:
+                          item.result.level === "適合"
+                            ? "#166534"
+                            : item.result.level === "普通"
+                            ? "#92400e"
+                            : "#991b1b",
+                      }}
+                    >
+                      {item.result.level}
+                    </div>
+                  </div>
 
-              <div
-                style={{
-                  ...styles.dayWeek,
-                  color: isRed ? "#dc2626" : "#6b7280",
-                }}
-              >
-                {item.weekday}
-              </div>
+                  <div
+                    style={{
+                      ...styles.dayWeek,
+                      color: isRed ? "#dc2626" : "#6b7280",
+                    }}
+                  >
+                    {item.weekday}
+                  </div>
 
-              <div
-                style={{
-                  ...styles.dayLunar,
-                  color: isRed ? "#dc2626" : "#374151",
-                }}
-              >
-                {item.data.lunarDate}
-              </div>
+                  <div
+                    style={{
+                      ...styles.dayLunar,
+                      color: isRed ? "#dc2626" : "#374151",
+                    }}
+                  >
+                    {item.data.lunarDate}
+                  </div>
 
-              {item.data.holidayName ? (
-                <div style={styles.dayHoliday}>{item.data.holidayName}</div>
-              ) : null}
+                  {item.data.holidayName ? (
+                    <div style={styles.dayHoliday}>{item.data.holidayName}</div>
+                  ) : null}
 
-              {item.data.solarTerm ? (
-                <div style={styles.daySolarTerm}>{item.data.solarTerm}</div>
-              ) : null}
+                  {item.data.solarTerm ? (
+                    <div style={styles.daySolarTerm}>{item.data.solarTerm}</div>
+                  ) : null}
 
-              <div style={styles.dayMiniText}>{item.result.title}</div>
-            </button>
-          );
-        })}
-      </div>
-    </>
-  )}
-</section>
+                  <div style={styles.dayMiniText}>{item.result.title}</div>
+                </button>
+              );
+            })}
+          </div>
+        </section>
 
-
-        <section style={styles.resultCard}>
+        <section style={{ ...styles.card, ...styles.resultCard }}>
           <div style={styles.sectionTitle}>所選日期詳細判斷</div>
-
           <div style={styles.resultTop}>
             <div
               style={{
@@ -981,74 +522,6 @@ for (let i = 0; i < yearMonthRefs.current.length; i += 1) {
           </div>
         </section>
 
-        <section style={styles.card}>
-          <div style={styles.sectionTitle}>基本資訊</div>
-          <div style={styles.infoGrid}>
-            <InfoItem icon="📅" label="國曆" value={detailData.solarDate} />
-            <InfoItem icon="📆" label="星期" value={detailData.weekday} />
-            <InfoItem icon="🌙" label="農曆" value={detailData.lunarDate} />
-            <InfoItem
-              icon="🎌"
-              label="假日"
-              value={detailData.holidayName || (detailData.isWeekend ? "例假日" : "—")}
-            />
-            <InfoItem icon="🌿" label="節氣" value={detailData.solarTerm || "—"} />
-            <InfoItem icon="🐲" label="生肖" value={detailData.zodiac} />
-            <InfoItem icon="🔥" label="五行" value={detailData.wuxing} />
-            <InfoItem icon="✨" label="今日運勢" value={detailData.fortune} />
-            <InfoItem icon="🧭" label="沖煞" value={detailData.clash} />
-          </div>
-        </section>
-
-        <section style={styles.yijiWrap}>
-          <div style={{ ...styles.yijiCard, ...styles.yiCard }}>
-            <h2 style={{ ...styles.yijiTitle, color: "#0f766e" }}>宜</h2>
-            <div style={styles.tagWrap}>
-              {detailData.goodList.map((item) => (
-                <span key={item} style={styles.goodTag}>
-                  {item}
-                </span>
-              ))}
-            </div>
-          </div>
-
-          <div style={{ ...styles.yijiCard, ...styles.jiCard }}>
-            <h2 style={{ ...styles.yijiTitle, color: "#b91c1c" }}>忌</h2>
-            <div style={styles.tagWrap}>
-              {detailData.badList.map((item) => (
-                <span key={item} style={styles.badTag}>
-                  {item}
-                </span>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section style={styles.card}>
-          <div style={styles.sectionTitle}>吉時</div>
-          <div style={styles.hourList}>
-            {detailData.goodHours.map((item) => (
-              <div key={item.time} style={styles.hourItem}>
-                <div>
-                  <div style={styles.hourTime}>{item.time}</div>
-                  <div style={styles.hourDesc}>{item.desc}</div>
-                </div>
-                <div style={styles.hourBadge}>{item.level}</div>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section style={styles.card}>
-          <div style={styles.sectionTitle}>進階資訊</div>
-          <div style={styles.advancedGrid}>
-            <AdvancedItem label="胎神" value={detailData.taishen} />
-            <AdvancedItem label="值神" value={detailData.zhishen} />
-            <AdvancedItem label="建除十二神" value={detailData.jianchu} />
-            <AdvancedItem label="彭祖百忌" value={detailData.pengzu} />
-          </div>
-        </section>
-
         <div style={styles.pdfHiddenArea}>
           <div ref={pdfCoverRef} style={styles.commercialCoverPage}>
             <div style={styles.coverGlowTop} />
@@ -1066,12 +539,10 @@ for (let i = 0; i < yearMonthRefs.current.length; i += 1) {
               <div style={styles.coverMainTitle}>{selectedYear} 農民曆</div>
               <div style={styles.coverSubTitle}>
                 {yearInfo.ganzhi && yearInfo.zodiac
-                  ? `${yearInfo.ganzhi}年・${yearInfo.zodiac}年｜${toTwText(PURPOSE_LABELS[purpose])}吉日精選專冊`
-                  : `${toTwText(PURPOSE_LABELS[purpose])}吉日精選專冊`}
+                  ? `${yearInfo.ganzhi}年・${yearInfo.zodiac}年｜${PURPOSE_LABELS[purpose]}吉日專冊`
+                  : `${PURPOSE_LABELS[purpose]}吉日專冊`}
               </div>
-              <div style={styles.coverBadge}>
-                {String(selectedMonth).padStart(2, "0")} 月特輯
-              </div>
+              <div style={styles.coverBadge}>{String(selectedMonth).padStart(2, "0")} 月特輯</div>
               <div style={styles.coverDivider} />
               <div style={styles.coverFooter}>適合列印 / 收藏 / 商業販售展示</div>
             </div>
@@ -1110,6 +581,84 @@ for (let i = 0; i < yearMonthRefs.current.length; i += 1) {
             </div>
           </div>
 
+          <div ref={pdfMonthRef} style={styles.yearMonthPage}>
+            <div style={styles.yearMonthHeader}>
+              <div style={styles.yearMonthTitle}>{selectedYear} 年 {selectedMonth} 月</div>
+              <div style={styles.yearMonthSubTitle}>{CHINESE_MONTHS[selectedMonth - 1]}｜{PURPOSE_LABELS[purpose]}吉日月曆</div>
+            </div>
+
+            <div style={styles.yearWeekHeader}>
+              {["日", "一", "二", "三", "四", "五", "六"].map((d) => (
+                <div key={d} style={styles.yearWeekCell}>{d}</div>
+              ))}
+            </div>
+
+            <div style={styles.yearMonthGrid}>
+              {calendarCells.map((item, index) => {
+                if (item.type === "empty") {
+                  return <div key={`pdf-month-empty-${index}`} style={styles.yearEmptyCell} />;
+                }
+
+                const isRed = item.data.isWeekend || Boolean(item.data.holidayName);
+
+                return (
+                  <div
+                    key={item.date}
+                    style={{
+                      ...styles.yearDayCard,
+                      borderColor:
+                        item.result.level === "適合"
+                          ? "#86efac"
+                          : item.result.level === "普通"
+                          ? "#fcd34d"
+                          : "#fca5a5",
+                      background:
+                        item.result.level === "適合"
+                          ? "#f0fdf4"
+                          : item.result.level === "普通"
+                          ? "#fffbeb"
+                          : "#fef2f2",
+                    }}
+                  >
+                    <div style={styles.yearDayTop}>
+                      <div style={{ ...styles.yearDayNumber, color: isRed ? "#dc2626" : "#111827" }}>
+                        {item.day}
+                      </div>
+                      <div
+                        style={{
+                          ...styles.yearDayBadge,
+                          background:
+                            item.result.level === "適合"
+                              ? "#dcfce7"
+                              : item.result.level === "普通"
+                              ? "#fef3c7"
+                              : "#fee2e2",
+                          color:
+                            item.result.level === "適合"
+                              ? "#166534"
+                              : item.result.level === "普通"
+                              ? "#92400e"
+                              : "#991b1b",
+                        }}
+                      >
+                        {item.result.level}
+                      </div>
+                    </div>
+                    <div style={{ ...styles.yearDayWeek, color: isRed ? "#dc2626" : "#6b7280" }}>
+                      {item.weekday}
+                    </div>
+                    <div style={{ ...styles.yearDayLunar, color: isRed ? "#dc2626" : "#374151" }}>
+                      {item.data.lunarDate}
+                    </div>
+                    {item.data.holidayName ? <div style={styles.yearDayHoliday}>{item.data.holidayName}</div> : null}
+                    {item.data.solarTerm ? <div style={styles.yearDaySolarTerm}>{item.data.solarTerm}</div> : null}
+                    <div style={styles.yearDayText}>{item.result.title}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
           <div ref={yearCoverRef} style={styles.commercialCoverPage}>
             <div style={styles.coverGlowTop} />
             <div style={styles.coverGlowBottom} />
@@ -1126,17 +675,13 @@ for (let i = 0; i < yearMonthRefs.current.length; i += 1) {
               <div style={styles.coverMainTitle}>{selectedYear} 全年農民曆</div>
               <div style={styles.coverSubTitle}>
                 {yearInfo.ganzhi && yearInfo.zodiac
-                  ? `${yearInfo.ganzhi}年・${yearInfo.zodiac}年｜${toTwText(PURPOSE_LABELS[purpose])}吉日總整理`
-                  : `${toTwText(PURPOSE_LABELS[purpose])}吉日總整理`}
+                  ? `${yearInfo.ganzhi}年・${yearInfo.zodiac}年｜${PURPOSE_LABELS[purpose]}吉日總整理`
+                  : `${PURPOSE_LABELS[purpose]}吉日總整理`}
               </div>
               <div style={styles.coverBadge}>12 個月份完整輸出</div>
-
               <div style={styles.tocWrap}>
                 {yearlyMonths.map(({ month, cells }) => {
-                  const luckyCount = cells.filter(
-                    (item) => item.type === "day" && item.result.level === "適合"
-                  ).length;
-
+                  const luckyCount = cells.filter((item) => item.type === "day" && item.result.level === "適合").length;
                   return (
                     <div key={month} style={styles.tocItem}>
                       <span>{String(month).padStart(2, "0")} 月</span>
@@ -1145,7 +690,6 @@ for (let i = 0; i < yearMonthRefs.current.length; i += 1) {
                   );
                 })}
               </div>
-
               <div style={styles.coverDivider} />
               <div style={styles.coverFooter}>商業展示 / 禮品列印 / 電子商品輸出</div>
             </div>
@@ -1160,31 +704,20 @@ for (let i = 0; i < yearMonthRefs.current.length; i += 1) {
               style={styles.yearMonthPage}
             >
               <div style={styles.yearMonthHeader}>
-                <div style={styles.yearMonthTitle}>
-                  {selectedYear} 年 {month} 月
-                </div>
-                <div style={styles.yearMonthSubTitle}>
-                  {CHINESE_MONTHS[month - 1]}｜{PURPOSE_LABELS[purpose]}吉日月曆
-                </div>
+                <div style={styles.yearMonthTitle}>{selectedYear} 年 {month} 月</div>
+                <div style={styles.yearMonthSubTitle}>{CHINESE_MONTHS[month - 1]}｜{PURPOSE_LABELS[purpose]}吉日月曆</div>
               </div>
 
               <div style={styles.yearWeekHeader}>
                 {["日", "一", "二", "三", "四", "五", "六"].map((d) => (
-                  <div key={d} style={styles.yearWeekCell}>
-                    {d}
-                  </div>
+                  <div key={d} style={styles.yearWeekCell}>{d}</div>
                 ))}
               </div>
 
               <div style={styles.yearMonthGrid}>
                 {cells.map((item, index) => {
                   if (item.type === "empty") {
-                    return (
-                      <div
-                        key={`year-empty-${month}-${index}`}
-                        style={styles.yearEmptyCell}
-                      />
-                    );
+                    return <div key={`year-empty-${month}-${index}`} style={styles.yearEmptyCell} />;
                   }
 
                   const isRed = item.data.isWeekend || Boolean(item.data.holidayName);
@@ -1209,12 +742,7 @@ for (let i = 0; i < yearMonthRefs.current.length; i += 1) {
                       }}
                     >
                       <div style={styles.yearDayTop}>
-                        <div
-                          style={{
-                            ...styles.yearDayNumber,
-                            color: isRed ? "#dc2626" : "#111827",
-                          }}
-                        >
+                        <div style={{ ...styles.yearDayNumber, color: isRed ? "#dc2626" : "#111827" }}>
                           {item.day}
                         </div>
                         <div
@@ -1237,33 +765,14 @@ for (let i = 0; i < yearMonthRefs.current.length; i += 1) {
                           {item.result.level}
                         </div>
                       </div>
-
-                      <div
-                        style={{
-                          ...styles.yearDayWeek,
-                          color: isRed ? "#dc2626" : "#6b7280",
-                        }}
-                      >
+                      <div style={{ ...styles.yearDayWeek, color: isRed ? "#dc2626" : "#6b7280" }}>
                         {item.weekday}
                       </div>
-
-                      <div
-                        style={{
-                          ...styles.yearDayLunar,
-                          color: isRed ? "#dc2626" : "#374151",
-                        }}
-                      >
+                      <div style={{ ...styles.yearDayLunar, color: isRed ? "#dc2626" : "#374151" }}>
                         {item.data.lunarDate}
                       </div>
-
-                      {item.data.holidayName ? (
-                        <div style={styles.yearDayHoliday}>{item.data.holidayName}</div>
-                      ) : null}
-
-                      {item.data.solarTerm ? (
-                        <div style={styles.yearDaySolarTerm}>{item.data.solarTerm}</div>
-                      ) : null}
-
+                      {item.data.holidayName ? <div style={styles.yearDayHoliday}>{item.data.holidayName}</div> : null}
+                      {item.data.solarTerm ? <div style={styles.yearDaySolarTerm}>{item.data.solarTerm}</div> : null}
                       <div style={styles.yearDayText}>{item.result.title}</div>
                     </div>
                   );
@@ -1275,6 +784,324 @@ for (let i = 0; i < yearMonthRefs.current.length; i += 1) {
       </div>
     </div>
   );
+}
+
+function InfoItem({ icon, label, value }) {
+  return (
+    <div style={styles.infoItem}>
+      <div style={styles.infoLabel}>
+        <span style={styles.infoIcon}>{icon}</span>
+        <span>{label}</span>
+      </div>
+      <div style={styles.infoValue}>{value}</div>
+    </div>
+  );
+}
+
+function buildExportText(year, month, purpose, luckyDays) {
+  const title = `${year} 年 ${month} 月 ${PURPOSE_LABELS[purpose]}吉日列表`;
+  const lines = [title, ""];
+
+  if (luckyDays.length === 0) {
+    lines.push("本月沒有篩選出適合的日期。");
+    return lines.join("\n");
+  }
+
+  luckyDays.forEach((item, index) => {
+    lines.push(
+      `${index + 1}. ${item.data.solarDate}（${item.data.weekday}）｜${item.data.lunarDate}｜${item.result.title}${item.data.holidayName ? `｜${item.data.holidayName}` : ""}${item.data.solarTerm ? `｜${item.data.solarTerm}` : ""}`
+    );
+  });
+
+  return lines.join("\n");
+}
+
+function buildYearOptions(currentYear) {
+  const startYear = 2000;
+  const endYear = 2050;
+  const years = [];
+
+  for (let y = startYear; y <= endYear; y += 1) {
+    years.push(y);
+  }
+
+  if (!years.includes(currentYear)) {
+    years.push(currentYear);
+    years.sort((a, b) => a - b);
+  }
+
+  return years;
+}
+
+function buildCalendarCells(year, month, purpose) {
+  const totalDays = new Date(year, month, 0).getDate();
+  const firstDayWeek = new Date(year, month - 1, 1).getDay();
+  const cells = [];
+
+  for (let i = 0; i < firstDayWeek; i += 1) {
+    cells.push({ type: "empty" });
+  }
+
+  for (let day = 1; day <= totalDays; day += 1) {
+    const date = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const data = getRealHuangliData(date);
+    const result = evaluatePurpose(data, purpose);
+
+    cells.push({
+      type: "day",
+      date,
+      day,
+      weekday: data.weekday,
+      data,
+      result,
+    });
+  }
+
+  while (cells.length % 7 !== 0) {
+    cells.push({ type: "empty" });
+  }
+
+  return cells;
+}
+
+function formatDateForInput(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function formatDateDisplay(dateStr) {
+  const [y, m, d] = dateStr.split("-");
+  return `${y} / ${m} / ${d}`;
+}
+
+function getWeekday(dateStr) {
+  const date = new Date(dateStr);
+  const weeks = ["星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"];
+  return weeks[date.getDay()];
+}
+
+function getTaiwanHolidayName(dateStr, lunar) {
+  const [, m, d] = dateStr.split("-").map(Number);
+
+  const solarHolidayMap = {
+    "01-01": "元旦",
+    "02-28": "和平紀念日",
+    "04-04": "兒童節",
+    "10-10": "國慶日",
+    "12-25": "行憲紀念日",
+  };
+
+  const solarKey = `${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  if (solarHolidayMap[solarKey]) return solarHolidayMap[solarKey];
+
+  const lunarMonth = lunar.getMonth();
+  const lunarDay = lunar.getDay();
+
+  if (lunarMonth === 1 && lunarDay === 1) return "春節";
+  if (lunarMonth === 1 && lunarDay === 15) return "元宵節";
+  if (lunarMonth === 5 && lunarDay === 5) return "端午節";
+  if (lunarMonth === 7 && lunarDay === 7) return "七夕";
+  if (lunarMonth === 8 && lunarDay === 15) return "中秋節";
+  if (lunarMonth === 9 && lunarDay === 9) return "重陽節";
+  if (lunarMonth === 12 && lunarDay === 8) return "臘八";
+  if (lunarMonth === 12 && lunarDay === 24) return "送神";
+  if (lunarMonth === 12 && lunarDay === 30) return "除夕";
+
+  return "";
+}
+
+function isWeekendDate(dateStr) {
+  const day = new Date(dateStr).getDay();
+  return day === 0 || day === 6;
+}
+
+function splitItems(text) {
+  if (!text) return [];
+  return String(text)
+    .split(/[.。、,，；; ]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function getRealHuangliData(dateStr) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const solar = Solar.fromYmd(y, m, d);
+  const lunar = solar.getLunar();
+
+  const yi = splitItems(lunar.getDayYi ? lunar.getDayYi() : "");
+  const ji = splitItems(lunar.getDayJi ? lunar.getDayJi() : "");
+
+  const eightChar = lunar.getEightChar ? lunar.getEightChar() : null;
+  const jie = lunar.getJie ? lunar.getJie() : "";
+  const qi = lunar.getQi ? lunar.getQi() : "";
+  const pengzuGan = lunar.getPengZuGan ? lunar.getPengZuGan() : "";
+  const pengzuZhi = lunar.getPengZuZhi ? lunar.getPengZuZhi() : "";
+  const dayPositionTai = lunar.getPositionTai ? lunar.getPositionTai() : "";
+  const dayPositionDesc = lunar.getPositionDesc ? lunar.getPositionDesc() : "";
+  const jiShen = lunar.getDayJiShen ? lunar.getDayJiShen() : [];
+  const chong = lunar.getChong ? lunar.getChong() : "";
+  const sha = lunar.getSha ? lunar.getSha() : "";
+  const zhiXing = lunar.getZhiXing ? lunar.getZhiXing() : "";
+  const nayin = lunar.getNaYin ? lunar.getNaYin() : "";
+
+  const holidayName = getTaiwanHolidayName(dateStr, lunar);
+  const isWeekend = isWeekendDate(dateStr);
+
+  return {
+    solarDate: formatDateDisplay(dateStr),
+    weekday: getWeekday(dateStr),
+    lunarDate: toTwText(`${lunar.getMonthInChinese()}月${lunar.getDayInChinese()}`),
+    zodiac: toTwText(`${lunar.getDayShengXiao()}日沖${chong || "—"}`),
+    wuxing: toTwText(
+      nayin || (eightChar && eightChar.getYearWuXing ? eightChar.getYearWuXing() : "—")
+    ),
+    solarTerm: toTwText(jie || qi || ""),
+    holidayName: toTwText(holidayName || ""),
+    isWeekend,
+    fortune: yi.length >= ji.length ? "吉" : "平",
+    clash: toTwText(`${chong || "—"}・${sha || "—"}`),
+    taishen: toTwText(
+      `${dayPositionTai || ""}${dayPositionDesc ? `（${dayPositionDesc}）` : ""}` || "—"
+    ),
+    zhishen: toTwText(Array.isArray(jiShen) && jiShen.length ? jiShen.join("、") : "—"),
+    jianchu: toTwText(zhiXing || "—"),
+    pengzu: toTwText(`${pengzuGan} ${pengzuZhi}`.trim() || "—"),
+    goodList: yi.length ? yi.map(toTwText) : ["無資料"],
+    badList: ji.length ? ji.map(toTwText) : ["無資料"],
+    goodHours: buildGoodHours(lunar),
+  };
+}
+
+function buildGoodHours(lunar) {
+  const times = ["子", "丑", "寅", "卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥"];
+  const ranges = {
+    子: "23:00 - 00:59",
+    丑: "01:00 - 02:59",
+    寅: "03:00 - 04:59",
+    卯: "05:00 - 06:59",
+    辰: "07:00 - 08:59",
+    巳: "09:00 - 10:59",
+    午: "11:00 - 12:59",
+    未: "13:00 - 14:59",
+    申: "15:00 - 16:59",
+    酉: "17:00 - 18:59",
+    戌: "19:00 - 20:59",
+    亥: "21:00 - 22:59",
+  };
+
+  const luckMap = {};
+  const timeList = lunar.getTimes ? lunar.getTimes() : [];
+
+  timeList.forEach((t) => {
+    const zhi = t.getZhi ? t.getZhi() : "";
+    const status = t.getTianShenLuck ? t.getTianShenLuck() : "";
+    luckMap[zhi] = status;
+  });
+
+  const result = times
+    .filter((zhi) => {
+      const status = luckMap[zhi];
+      return status === "吉" || status === "貴" || status === "大吉";
+    })
+    .map((zhi) => ({
+      time: `${zhi}時 ${ranges[zhi]}`,
+      desc: "依黃曆時辰換算",
+      level: toTwText(luckMap[zhi] || "吉"),
+    }));
+
+  return result.length
+    ? result
+    : [{ time: "—", desc: "此日未取得吉時資料", level: "—" }];
+}
+
+function containsAny(list, keywords) {
+  return keywords.some((keyword) => list.includes(keyword));
+}
+
+function evaluatePurpose(data, purpose) {
+  const good = data.goodList;
+  const bad = data.badList;
+
+  if (purpose === "marriage") {
+    const hasGood = containsAny(good, ["嫁娶", "納采", "訂盟", "祈福"]);
+    const hasBad = containsAny(bad, ["嫁娶", "破土", "安葬"]);
+
+    if (hasGood && !hasBad) {
+      return {
+        level: "適合",
+        title: "適合結婚",
+        description: "宜中包含婚嫁相關項目，且忌中無明顯衝突。",
+      };
+    }
+
+    if (!hasGood && hasBad) {
+      return {
+        level: "不建議",
+        title: "不建議結婚",
+        description: "忌中有婚嫁衝突，較不適合安排。",
+      };
+    }
+
+    return {
+      level: "普通",
+      title: "可列入參考",
+      description: "沒有明顯大凶，但婚嫁吉象不算特別強。",
+    };
+  }
+
+  if (purpose === "moving") {
+    const hasGood = containsAny(good, ["入宅", "移徙", "安床"]);
+    const hasBad = containsAny(bad, ["入宅", "移徙", "動土", "安門"]);
+
+    if (hasGood && !hasBad) {
+      return {
+        level: "適合",
+        title: "適合搬家",
+        description: "宜中對搬家入宅有利，忌中衝突少。",
+      };
+    }
+
+    if (!hasGood && hasBad) {
+      return {
+        level: "不建議",
+        title: "不建議搬家",
+        description: "忌中與搬家用途有明顯衝突。",
+      };
+    }
+
+    return {
+      level: "普通",
+      title: "可列入參考",
+      description: "沒有大衝突，但也不是最理想日期。",
+    };
+  }
+
+  const hasGood = containsAny(good, ["開市", "交易", "立券", "納財", "開工"]);
+  const hasBad = containsAny(bad, ["開市", "交易", "詞訟", "訴訟"]);
+
+  if (hasGood && !hasBad) {
+    return {
+      level: "適合",
+      title: "適合開工",
+      description: "宜中包含商務與開工相關項目，整體有利。",
+    };
+  }
+
+  if (!hasGood && hasBad) {
+    return {
+      level: "不建議",
+      title: "不建議開工",
+      description: "忌中對商務用途較不利。",
+    };
+  }
+
+  return {
+    level: "普通",
+    title: "可列入參考",
+    description: "商務吉象普通，可做備選日期。",
+  };
 }
 
 const styles = {
@@ -1297,27 +1124,17 @@ const styles = {
     borderRadius: "24px",
     boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
   },
-
-
-
-title: {
-  margin: 0,
-  fontSize: "clamp(30px, 8vw, 58px)",
-  color: "#b91c1c",
-  fontWeight: "bold",
-  lineHeight: 1.15,
-  wordBreak: "break-word",
-},
-
-subtitle: {
-  marginTop: "12px",
-  color: "#6b7280",
-  fontSize: "clamp(16px, 4.5vw, 22px)",
-  lineHeight: 1.4,
-  wordBreak: "break-word",
-},
-
-
+  title: {
+    margin: 0,
+    fontSize: "58px",
+    color: "#b91c1c",
+    fontWeight: "bold",
+  },
+  subtitle: {
+    marginTop: "12px",
+    color: "#6b7280",
+    fontSize: "22px",
+  },
   card: {
     background: "#ffffff",
     borderRadius: "20px",
@@ -1327,14 +1144,6 @@ subtitle: {
   },
   exportCard: {
     border: "2px solid #bfdbfe",
-  },
-  resultCard: {
-    border: "2px solid #fde68a",
-    background: "#ffffff",
-    borderRadius: "20px",
-    padding: "24px",
-    marginBottom: "20px",
-    boxShadow: "0 8px 24px rgba(0,0,0,0.06)",
   },
   sectionTitle: {
     fontSize: "30px",
@@ -1407,6 +1216,16 @@ subtitle: {
     color: "#166534",
     fontSize: "17px",
     fontWeight: "bold",
+  },
+  supportNote: {
+    marginTop: "14px",
+    padding: "12px 14px",
+    background: "#eff6ff",
+    border: "1px solid #bfdbfe",
+    borderRadius: "12px",
+    color: "#1d4ed8",
+    fontSize: "16px",
+    lineHeight: 1.6,
   },
   weekdayHeader: {
     display: "grid",
@@ -1485,97 +1304,19 @@ subtitle: {
     color: "#2563eb",
     marginBottom: "4px",
   },
-
   dayMiniText: {
     fontSize: "15px",
     color: "#4b5563",
     lineHeight: 1.5,
   },
-
-mobileCalendarList: {
-  display: "grid",
-  gap: "14px",
-},
-mobileDayCard: {
-  width: "100%",
-  border: "2px solid #e5e7eb",
-  borderRadius: "20px",
-  padding: "16px",
-  textAlign: "left",
-  cursor: "pointer",
-  boxSizing: "border-box",
-  display: "flex",
-  alignItems: "stretch",
-  justifyContent: "space-between",
-  gap: "14px",
-},
-mobileDayCardActive: {
-  boxShadow: "0 0 0 3px rgba(185, 28, 28, 0.15)",
-},
-mobileDayLeft: {
-  flex: 1,
-  minWidth: 0,
-},
-mobileDayRight: {
-  width: "110px",
-  display: "flex",
-  flexDirection: "column",
-  justifyContent: "space-between",
-  alignItems: "flex-end",
-  textAlign: "right",
-},
-mobileDayTopRow: {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  marginBottom: "8px",
-  gap: "10px",
-},
-mobileDayNumber: {
-  fontSize: "34px",
-  fontWeight: "bold",
-  lineHeight: 1,
-},
-mobileDayBadge: {
-  padding: "6px 10px",
-  borderRadius: "999px",
-  fontSize: "14px",
-  fontWeight: "bold",
-  whiteSpace: "nowrap",
-},
-mobileDayWeek: {
-  fontSize: "16px",
-  marginBottom: "6px",
-},
-mobileDayLunar: {
-  fontSize: "20px",
-  fontWeight: "bold",
-  marginBottom: "8px",
-},
-mobileDayHoliday: {
-  fontSize: "15px",
-  fontWeight: "bold",
-  color: "#dc2626",
-  marginBottom: "4px",
-},
-mobileDaySolarTerm: {
-  fontSize: "15px",
-  fontWeight: "bold",
-  color: "#2563eb",
-  marginBottom: "4px",
-},
-mobileDayResult: {
-  fontSize: "18px",
-  fontWeight: "bold",
-  color: "#374151",
-  lineHeight: 1.45,
-},
-mobileDayHint: {
-  fontSize: "13px",
-  color: "#6b7280",
-},
-
-
+  resultCard: {
+    border: "2px solid #fde68a",
+    background: "#ffffff",
+    borderRadius: "20px",
+    padding: "24px",
+    marginBottom: "20px",
+    boxShadow: "0 8px 24px rgba(0,0,0,0.06)",
+  },
   resultTop: {
     display: "flex",
     gap: "18px",
@@ -1893,7 +1634,6 @@ mobileDayHint: {
     fontSize: "34px",
     fontWeight: "bold",
     marginTop: "12px",
-    lineHeight: 1.5,
   },
   coverBadge: {
     alignSelf: "flex-start",
@@ -1906,8 +1646,7 @@ mobileDayHint: {
   },
   coverDivider: {
     height: "2px",
-    background:
-      "linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.5) 50%, rgba(255,255,255,0) 100%)",
+    background: "linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.5) 50%, rgba(255,255,255,0) 100%)",
     margin: "8px 0",
   },
   coverFooter: {
