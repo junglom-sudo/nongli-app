@@ -652,7 +652,8 @@ function buildExportText(year, month, purpose, luckyDays) {
 
   if (luckyDays.length === 0) {
     lines.push("本月沒有篩選出適合的日期。");
-    return lines.join("\n");
+    return lines.join("
+");
   }
 
   luckyDays.forEach((item, index) => {
@@ -661,9 +662,9 @@ function buildExportText(year, month, purpose, luckyDays) {
     );
   });
 
-  return lines.join("\n");
+  return lines.join("
+");
 }
-
 
 function buildYearOptions(currentYear) {
   const startYear = 2000;

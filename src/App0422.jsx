@@ -1,3 +1,9 @@
+// 商業版 PDF 封面＋全年輸出版 App.jsx
+// 需先安裝：npm install lunar-javascript opencc-js jspdf html2canvas
+
+
+
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Solar } from "lunar-javascript";
 import * as OpenCC from "opencc-js";
@@ -5,6 +11,16 @@ import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
 
 const toTraditional = OpenCC.Converter({ from: "cn", to: "tw" });
+
+const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+
+useEffect(() => {
+  const handleResize = () => {
+    setIsMobile(window.innerWidth < 768);
+  };
+  window.addEventListener("resize", handleResize);
+  return () => window.removeEventListener("resize", handleResize);
+}, []);
 
 function fixTraditional(text) {
   return text
@@ -42,6 +58,7 @@ const CHINESE_MONTHS = [
   "十二月",
 ];
 
+
 export default function App() {
   const today = new Date();
   const defaultYear = today.getFullYear();
@@ -54,26 +71,23 @@ export default function App() {
   const [purpose, setPurpose] = useState("marriage");
   const [copyMessage, setCopyMessage] = useState("");
   const [isExportingYear, setIsExportingYear] = useState(false);
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
-  const [isLineBrowser, setIsLineBrowser] = useState(false);
 
   const pdfCoverRef = useRef(null);
   const pdfSummaryRef = useRef(null);
   const pdfMonthRef = useRef(null);
+  const calendarPrintRef = useRef(null);
   const yearCoverRef = useRef(null);
   const yearMonthRefs = useRef([]);
 
-  useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth < 768);
-    handleResize();
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
+const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+useEffect(() => {
+  const handleResize = () => {
+    setIsMobile(window.innerWidth < 768);
+  };
 
-  useEffect(() => {
-    const ua = navigator.userAgent || "";
-    setIsLineBrowser(/Line\//i.test(ua));
-  }, []);
+  window.addEventListener("resize", handleResize);
+  return () => window.removeEventListener("resize", handleResize);
+}, []);
 
   const calendarCells = useMemo(() => {
     return buildCalendarCells(selectedYear, selectedMonth, purpose);
@@ -147,7 +161,7 @@ export default function App() {
 
   async function captureCanvas(element) {
     return html2canvas(element, {
-      scale: 2,
+      scale: 3,
       useCORS: true,
       backgroundColor: "#ffffff",
       scrollX: 0,
@@ -155,19 +169,79 @@ export default function App() {
     });
   }
 
+  function addCanvasAsPages(pdf, canvas, isFirstPage = false) {
+    const pageWidthMm = 210;
+    const pageHeightMm = 297;
+    const marginMm = 8;
+
+    const usableWidthMm = pageWidthMm - marginMm * 2;
+    const usableHeightMm = pageHeightMm - marginMm * 2;
+
+    const scale = usableWidthMm / canvas.width;
+    const pageSliceHeightPx = Math.floor(usableHeightMm / scale);
+
+    let renderedHeightPx = 0;
+    let pageIndex = 0;
+
+    while (renderedHeightPx < canvas.height) {
+      const sliceHeightPx = Math.min(pageSliceHeightPx, canvas.height - renderedHeightPx);
+
+      const pageCanvas = document.createElement("canvas");
+      pageCanvas.width = canvas.width;
+      pageCanvas.height = sliceHeightPx;
+
+      const ctx = pageCanvas.getContext("2d");
+      if (!ctx) {
+        throw new Error("無法建立 PDF 畫布內容");
+      }
+
+      ctx.drawImage(
+        canvas,
+        0,
+        renderedHeightPx,
+        canvas.width,
+        sliceHeightPx,
+        0,
+        0,
+        canvas.width,
+        sliceHeightPx
+      );
+
+      const imgData = pageCanvas.toDataURL("image/png");
+      const sliceHeightMm = sliceHeightPx * scale;
+
+      if (!(isFirstPage && pageIndex === 0)) {
+        pdf.addPage();
+      }
+
+      pdf.addImage(imgData, "PNG", marginMm, marginMm, usableWidthMm, sliceHeightMm);
+
+      renderedHeightPx += sliceHeightPx;
+      pageIndex += 1;
+    }
+  }
+
   function addCanvasSinglePage(pdf, canvas, isFirstPage = false) {
     const pageWidthMm = 210;
     const pageHeightMm = 297;
     const marginMm = 8;
+
     const usableWidthMm = pageWidthMm - marginMm * 2;
     const usableHeightMm = pageHeightMm - marginMm * 2;
-    const ratio = Math.min(usableWidthMm / canvas.width, usableHeightMm / canvas.height);
-    const renderWidth = canvas.width * ratio;
-    const renderHeight = canvas.height * ratio;
+
+    const imgWidth = canvas.width;
+    const imgHeight = canvas.height;
+    const ratio = Math.min(usableWidthMm / imgWidth, usableHeightMm / imgHeight);
+
+    const renderWidth = imgWidth * ratio;
+    const renderHeight = imgHeight * ratio;
     const x = (pageWidthMm - renderWidth) / 2;
     const y = (pageHeightMm - renderHeight) / 2;
 
-    if (!isFirstPage) pdf.addPage();
+    if (!isFirstPage) {
+      pdf.addPage();
+    }
+
     pdf.addImage(canvas.toDataURL("image/png"), "PNG", x, y, renderWidth, renderHeight);
   }
 
@@ -181,12 +255,19 @@ export default function App() {
       const summaryCanvas = await captureCanvas(pdfSummaryRef.current);
       const monthCanvas = await captureCanvas(pdfMonthRef.current);
 
-      const pdf = new jsPDF({ orientation: "p", unit: "mm", format: "a4" });
+      const pdf = new jsPDF({
+        orientation: "p",
+        unit: "mm",
+        format: "a4",
+      });
+
       addCanvasSinglePage(pdf, coverCanvas, true);
       addCanvasSinglePage(pdf, summaryCanvas, false);
       addCanvasSinglePage(pdf, monthCanvas, false);
 
-      pdf.save(`${selectedYear}-${String(selectedMonth).padStart(2, "0")}-${PURPOSE_LABELS[purpose]}吉日報告-商業版.pdf`);
+      pdf.save(
+        `${selectedYear}-${String(selectedMonth).padStart(2, "0")}-${PURPOSE_LABELS[purpose]}吉日報告-商業版.pdf`
+      );
     } catch (error) {
       console.error("PDF 匯出失敗：", error);
       alert(`PDF 匯出失敗：${error?.message || error}`);
@@ -196,11 +277,17 @@ export default function App() {
   async function handleDownloadYearPdf() {
     try {
       setIsExportingYear(true);
+
       if (!yearCoverRef.current || !yearMonthRefs.current.length) {
         throw new Error("找不到全年 PDF 區塊");
       }
 
-      const pdf = new jsPDF({ orientation: "p", unit: "mm", format: "a4" });
+      const pdf = new jsPDF({
+        orientation: "p",
+        unit: "mm",
+        format: "a4",
+      });
+
       const coverCanvas = await captureCanvas(yearCoverRef.current);
       addCanvasSinglePage(pdf, coverCanvas, true);
 
@@ -223,12 +310,6 @@ export default function App() {
   return (
     <div style={styles.page}>
       <div style={styles.container}>
-        {isLineBrowser ? (
-          <div style={styles.lineNotice}>
-            LINE 內建瀏覽器可能放大字體。若排版怪異，建議點右上角選單改用外部瀏覽器開啟。
-          </div>
-        ) : null}
-
         <header style={styles.header}>
           <h1 style={styles.title}>今日農民曆</h1>
           <p style={styles.subtitle}>商業版｜封面 PDF ＋ 全年輸出</p>
@@ -236,6 +317,7 @@ export default function App() {
 
         <section style={styles.card}>
           <div style={styles.sectionTitle}>查詢條件</div>
+
           <div style={styles.controlGrid}>
             <div style={styles.controlBlock}>
               <label style={styles.label}>年份：</label>
@@ -277,13 +359,18 @@ export default function App() {
 
             <div style={styles.controlBlock}>
               <label style={styles.label}>用途：</label>
-              <select value={purpose} onChange={(e) => setPurpose(e.target.value)} style={styles.select}>
+              <select
+                value={purpose}
+                onChange={(e) => setPurpose(e.target.value)}
+                style={styles.select}
+              >
                 <option value="marriage">結婚吉日</option>
                 <option value="moving">搬家吉日</option>
                 <option value="business">開工吉日</option>
               </select>
             </div>
           </div>
+
           <div style={styles.supportNote}>
             目前支援年份：2000 ～ 2050。網站版可直接查詢，商業版 PDF 支援單月與全年輸出。
           </div>
@@ -291,22 +378,40 @@ export default function App() {
 
         <section style={{ ...styles.card, ...styles.exportCard }}>
           <div style={styles.sectionTitle}>商業版匯出</div>
+
           <div style={styles.exportSummary}>
-            <div style={styles.exportBadge}>本月 {PURPOSE_LABELS[purpose]}：{luckyDays.length} 天適合</div>
+            <div style={styles.exportBadge}>
+              本月 {PURPOSE_LABELS[purpose]}：{luckyDays.length} 天適合
+            </div>
+
             <div style={styles.exportActions}>
-              <button style={styles.primaryButton} onClick={handleCopy}>複製吉日列表</button>
-              <button style={styles.secondaryButton} onClick={handleDownloadTxt}>匯出 TXT</button>
-              <button style={styles.secondaryButton} onClick={handleDownloadPdf}>匯出商業版 PDF</button>
-              <button style={styles.secondaryButton} onClick={handleDownloadYearPdf} disabled={isExportingYear}>
+              <button style={styles.primaryButton} onClick={handleCopy}>
+                複製吉日列表
+              </button>
+              <button style={styles.secondaryButton} onClick={handleDownloadTxt}>
+                匯出 TXT
+              </button>
+              <button style={styles.secondaryButton} onClick={handleDownloadPdf}>
+                匯出商業版 PDF
+              </button>
+              <button
+                style={styles.secondaryButton}
+                onClick={handleDownloadYearPdf}
+                disabled={isExportingYear}
+              >
                 {isExportingYear ? "全年匯出中..." : "匯出全年 PDF"}
               </button>
             </div>
           </div>
+
           {copyMessage ? <div style={styles.copyMessage}>{copyMessage}</div> : null}
         </section>
 
-        <section style={styles.card} ref={null}>
-          <div style={styles.sectionTitle}>{selectedYear} 年 {selectedMonth} 月總覽</div>
+
+        <section style={styles.card} ref={calendarPrintRef}>
+          <div style={styles.sectionTitle}>
+            {selectedYear} 年 {selectedMonth} 月總覽
+          </div>
 
           {isMobile ? (
             <div style={styles.mobileCalendarList}>
@@ -314,7 +419,6 @@ export default function App() {
                 .filter((item) => item.type === "day")
                 .map((item) => {
                   const isRed = item.data.isWeekend || Boolean(item.data.holidayName);
-                  const badgeStyle = getResultBadgeStyle(item.result.level);
 
                   return (
                     <button
@@ -323,27 +427,77 @@ export default function App() {
                       style={{
                         ...styles.mobileDayCard,
                         ...(selectedDate === item.date ? styles.mobileDayCardActive : {}),
-                        borderColor: badgeStyle.borderColor,
-                        background: badgeStyle.background,
+                        borderColor:
+                          item.result.level === "適合"
+                            ? "#86efac"
+                            : item.result.level === "普通"
+                            ? "#fcd34d"
+                            : "#fca5a5",
+                        background:
+                          item.result.level === "適合"
+                            ? "#f0fdf4"
+                            : item.result.level === "普通"
+                            ? "#fffbeb"
+                            : "#fef2f2",
                       }}
                     >
                       <div style={styles.mobileDayLeft}>
                         <div style={styles.mobileDayTopRow}>
-                          <div style={{ ...styles.mobileDayNumber, color: isRed ? "#dc2626" : "#111827" }}>
+                          <div
+                            style={{
+                              ...styles.mobileDayNumber,
+                              color: isRed ? "#dc2626" : "#111827",
+                            }}
+                          >
                             {item.day}
                           </div>
-                          <div style={{ ...styles.mobileDayBadge, background: badgeStyle.badgeBg, color: badgeStyle.badgeColor }}>
+
+                          <div
+                            style={{
+                              ...styles.mobileDayBadge,
+                              background:
+                                item.result.level === "適合"
+                                  ? "#dcfce7"
+                                  : item.result.level === "普通"
+                                  ? "#fef3c7"
+                                  : "#fee2e2",
+                              color:
+                                item.result.level === "適合"
+                                  ? "#166534"
+                                  : item.result.level === "普通"
+                                  ? "#92400e"
+                                  : "#991b1b",
+                            }}
+                          >
                             {item.result.level}
                           </div>
                         </div>
-                        <div style={{ ...styles.mobileDayWeek, color: isRed ? "#dc2626" : "#6b7280" }}>
+
+                        <div
+                          style={{
+                            ...styles.mobileDayWeek,
+                            color: isRed ? "#dc2626" : "#6b7280",
+                          }}
+                        >
                           {item.weekday}
                         </div>
-                        <div style={{ ...styles.mobileDayLunar, color: isRed ? "#dc2626" : "#374151" }}>
+
+                        <div
+                          style={{
+                            ...styles.mobileDayLunar,
+                            color: isRed ? "#dc2626" : "#374151",
+                          }}
+                        >
                           {item.data.lunarDate}
                         </div>
-                        {item.data.holidayName ? <div style={styles.mobileDayHoliday}>{item.data.holidayName}</div> : null}
-                        {item.data.solarTerm ? <div style={styles.mobileDaySolarTerm}>{item.data.solarTerm}</div> : null}
+
+                        {item.data.holidayName ? (
+                          <div style={styles.mobileDayHoliday}>{item.data.holidayName}</div>
+                        ) : null}
+
+                        {item.data.solarTerm ? (
+                          <div style={styles.mobileDaySolarTerm}>{item.data.solarTerm}</div>
+                        ) : null}
                       </div>
 
                       <div style={styles.mobileDayRight}>
@@ -358,7 +512,9 @@ export default function App() {
             <>
               <div style={styles.weekdayHeader}>
                 {["日", "一", "二", "三", "四", "五", "六"].map((d) => (
-                  <div key={d} style={styles.weekdayCell}>{d}</div>
+                  <div key={d} style={styles.weekdayCell}>
+                    {d}
+                  </div>
                 ))}
               </div>
 
@@ -369,7 +525,6 @@ export default function App() {
                   }
 
                   const isRed = item.data.isWeekend || Boolean(item.data.holidayName);
-                  const badgeStyle = getResultBadgeStyle(item.result.level);
 
                   return (
                     <button
@@ -378,27 +533,76 @@ export default function App() {
                       style={{
                         ...styles.dayCard,
                         ...(selectedDate === item.date ? styles.dayCardActive : {}),
-                        borderColor: badgeStyle.borderColor,
-                        background: badgeStyle.background,
+                        borderColor:
+                          item.result.level === "適合"
+                            ? "#86efac"
+                            : item.result.level === "普通"
+                            ? "#fcd34d"
+                            : "#fca5a5",
+                        background:
+                          item.result.level === "適合"
+                            ? "#f0fdf4"
+                            : item.result.level === "普通"
+                            ? "#fffbeb"
+                            : "#fef2f2",
                       }}
                     >
                       <div style={styles.dayTopRow}>
-                        <div style={{ ...styles.dayNumber, color: isRed ? "#dc2626" : "#111827" }}>
+                        <div
+                          style={{
+                            ...styles.dayNumber,
+                            color: isRed ? "#dc2626" : "#111827",
+                          }}
+                        >
                           {item.day}
                         </div>
-                        <div style={{ ...styles.dayBadge, background: badgeStyle.badgeBg, color: badgeStyle.badgeColor }}>
+                        <div
+                          style={{
+                            ...styles.dayBadge,
+                            background:
+                              item.result.level === "適合"
+                                ? "#dcfce7"
+                                : item.result.level === "普通"
+                                ? "#fef3c7"
+                                : "#fee2e2",
+                            color:
+                              item.result.level === "適合"
+                                ? "#166534"
+                                : item.result.level === "普通"
+                                ? "#92400e"
+                                : "#991b1b",
+                          }}
+                        >
                           {item.result.level}
                         </div>
                       </div>
 
-                      <div style={{ ...styles.dayWeek, color: isRed ? "#dc2626" : "#6b7280" }}>
+                      <div
+                        style={{
+                          ...styles.dayWeek,
+                          color: isRed ? "#dc2626" : "#6b7280",
+                        }}
+                      >
                         {item.weekday}
                       </div>
-                      <div style={{ ...styles.dayLunar, color: isRed ? "#dc2626" : "#374151" }}>
+
+                      <div
+                        style={{
+                          ...styles.dayLunar,
+                          color: isRed ? "#dc2626" : "#374151",
+                        }}
+                      >
                         {item.data.lunarDate}
                       </div>
-                      {item.data.holidayName ? <div style={styles.dayHoliday}>{item.data.holidayName}</div> : null}
-                      {item.data.solarTerm ? <div style={styles.daySolarTerm}>{item.data.solarTerm}</div> : null}
+
+                      {item.data.holidayName ? (
+                        <div style={styles.dayHoliday}>{item.data.holidayName}</div>
+                      ) : null}
+
+                      {item.data.solarTerm ? (
+                        <div style={styles.daySolarTerm}>{item.data.solarTerm}</div>
+                      ) : null}
+
                       <div style={styles.dayMiniText}>{item.result.title}</div>
                     </button>
                   );
@@ -407,116 +611,12 @@ export default function App() {
             </>
           )}
         </section>
-
-        <section style={{ ...styles.card, ...styles.resultCard }}>
-          <div style={styles.sectionTitle}>所選日期詳細判斷</div>
-          <div style={styles.resultTop}>
-            <div
-              style={{
-                ...styles.resultBadge,
-                background: getResultBadgeStyle(detailResult.level).badgeBg,
-                color: getResultBadgeStyle(detailResult.level).badgeColor,
-              }}
-            >
-              {detailResult.level}
-            </div>
-            <div style={styles.resultTextWrap}>
-              <div style={styles.resultTitle}>{detailResult.title}</div>
-              <div style={styles.resultDesc}>{detailResult.description}</div>
-              <div style={styles.selectedDateText}>所選日期：{detailData.solarDate}（{detailData.weekday}）</div>
-            </div>
-          </div>
-        </section>
-
-        <div style={styles.pdfHiddenArea}>
-          <div ref={pdfCoverRef} style={styles.commercialCoverPage}>
-            <div style={styles.coverGlowTop} />
-            <div style={styles.coverGlowBottom} />
-            <div style={styles.coverPatternCircleA} />
-            <div style={styles.coverPatternCircleB} />
-            <div style={styles.coverContentLayer}>
-              <div style={styles.coverBrand}>傳統曆書・商業版</div>
-              <div style={styles.coverHeroWrap}>
-                <div style={styles.coverHeroMoon}>☯</div>
-                <div style={styles.coverHeroCloudLeft}>祥雲</div>
-                <div style={styles.coverHeroCloudRight}>吉曜</div>
-              </div>
-              <div style={styles.coverMainTitle}>{selectedYear} 農民曆</div>
-              <div style={styles.coverSubTitle}>
-                {yearInfo.ganzhi && yearInfo.zodiac
-                  ? `${yearInfo.ganzhi}年・${yearInfo.zodiac}年｜${PURPOSE_LABELS[purpose]}吉日專冊`
-                  : `${PURPOSE_LABELS[purpose]}吉日專冊`}
-              </div>
-              <div style={styles.coverBadge}>{String(selectedMonth).padStart(2, "0")} 月特輯</div>
-              <div style={styles.coverDivider} />
-              <div style={styles.coverFooter}>適合列印 / 收藏 / 商業販售展示</div>
-            </div>
-          </div>
-
-          <div ref={pdfSummaryRef} style={styles.pdfPage}>
-            <div style={styles.pdfHeader}>
-              <div style={styles.pdfTitle}>農民曆吉日報告</div>
-              <div style={styles.pdfSubTitle}>{selectedYear} 年 {selectedMonth} 月｜{PURPOSE_LABELS[purpose]}</div>
-            </div>
-            <div style={styles.pdfSection}>
-              <div style={styles.pdfSectionTitle}>本月吉日</div>
-              {luckyDays.length === 0 ? (
-                <div style={styles.pdfText}>本月沒有適合日期</div>
-              ) : (
-                luckyDays.map((item, index) => (
-                  <div key={item.date} style={styles.pdfBullet}>
-                    {index + 1}. {item.data.solarDate}（{item.data.weekday}）｜{item.data.lunarDate}｜{item.result.title}
-                    {item.data.holidayName ? `｜${item.data.holidayName}` : ""}
-                    {item.data.solarTerm ? `｜${item.data.solarTerm}` : ""}
-                  </div>
-                ))
-              )}
-            </div>
-            <div style={styles.pdfSection}>
-              <div style={styles.pdfSectionTitle}>所選日期</div>
-              <div style={styles.pdfText}>日期：{detailData.solarDate}</div>
-              <div style={styles.pdfText}>農曆：{detailData.lunarDate}</div>
-              <div style={styles.pdfText}>結果：{detailResult.title}</div>
-              <div style={styles.pdfText}>說明：{detailResult.description}</div>
-            </div>
-          </div>
-
-          <div ref={pdfMonthRef} style={styles.yearMonthPage}>
-            <div style={styles.yearMonthHeader}>
-              <div style={styles.yearMonthTitle}>{selectedYear} 年 {selectedMonth} 月</div>
-              <div style={styles.yearMonthSubTitle}>{CHINESE_MONTHS[selectedMonth - 1]}｜{PURPOSE_LABELS[purpose]}吉日月曆</div>
-            </div>
-            <div style={styles.yearWeekHeader}>
-              {["日", "一", "二", "三", "四", "五", "六"].map((d) => (
-                <div key={d} style={styles.yearWeekCell}>{d}</div>
-              ))}
-            </div>
-            <div style={styles.yearMonthGrid}>
-              {calendarCells.map((item, index) => {
-                if (item.type === "empty") {
-                  return <div key={`pdf-month-empty-${index}`} style={styles.yearEmptyCell} />;
-                }
-
-                const isRed = item.data.isWeekend || Boolean(item.data.holidayName);
-                const badgeStyle = getResultBadgeStyle(item.result.level);
-
-                return (
-                  <div
-                    key={item.date}
-                    style={{
-                      ...styles.yearDayCard,
-                      borderColor: badgeStyle.borderColor,
-                      background: badgeStyle.background,
-                    }}
-                  >
-                    <div style={styles.yearDayTop}>
-                      <div style={{ ...styles.yearDayNumber, color: isRed ? "#dc2626" : "#111827" }}>{item.day}</div>
-                      <div style={{ ...styles.yearDayBadge, background: badgeStyle.badgeBg, color: badgeStyle.badgeColor }}>
-                        {item.result.level}
-                      </div>
+                    <div style={{ ...styles.yearDayWeek, color: isRed ? "#dc2626" : "#6b7280" }}>
+                      {item.weekday}
                     </div>
-                    <div style={{ ...styles.yearDayWeek, color: isRed ? "#dc2626" : "#6b7280" }}>{item.weekday}</div>
-                    <div style={{ ...styles.yearDayLunar, color: isRed ? "#dc2626" : "#374151" }}>{item.data.lunarDate}</div>
+                    <div style={{ ...styles.yearDayLunar, color: isRed ? "#dc2626" : "#374151" }}>
+                      {item.data.lunarDate}
+                    </div>
                     {item.data.holidayName ? <div style={styles.yearDayHoliday}>{item.data.holidayName}</div> : null}
                     {item.data.solarTerm ? <div style={styles.yearDaySolarTerm}>{item.data.solarTerm}</div> : null}
                     <div style={styles.yearDayText}>{item.result.title}</div>
@@ -531,6 +631,7 @@ export default function App() {
             <div style={styles.coverGlowBottom} />
             <div style={styles.coverPatternCircleA} />
             <div style={styles.coverPatternCircleB} />
+
             <div style={styles.coverContentLayer}>
               <div style={styles.coverBrand}>全年典藏版</div>
               <div style={styles.coverHeroWrap}>
@@ -573,11 +674,13 @@ export default function App() {
                 <div style={styles.yearMonthTitle}>{selectedYear} 年 {month} 月</div>
                 <div style={styles.yearMonthSubTitle}>{CHINESE_MONTHS[month - 1]}｜{PURPOSE_LABELS[purpose]}吉日月曆</div>
               </div>
+
               <div style={styles.yearWeekHeader}>
                 {["日", "一", "二", "三", "四", "五", "六"].map((d) => (
                   <div key={d} style={styles.yearWeekCell}>{d}</div>
                 ))}
               </div>
+
               <div style={styles.yearMonthGrid}>
                 {cells.map((item, index) => {
                   if (item.type === "empty") {
@@ -585,25 +688,56 @@ export default function App() {
                   }
 
                   const isRed = item.data.isWeekend || Boolean(item.data.holidayName);
-                  const badgeStyle = getResultBadgeStyle(item.result.level);
 
                   return (
                     <div
                       key={item.date}
                       style={{
                         ...styles.yearDayCard,
-                        borderColor: badgeStyle.borderColor,
-                        background: badgeStyle.background,
+                        borderColor:
+                          item.result.level === "適合"
+                            ? "#86efac"
+                            : item.result.level === "普通"
+                            ? "#fcd34d"
+                            : "#fca5a5",
+                        background:
+                          item.result.level === "適合"
+                            ? "#f0fdf4"
+                            : item.result.level === "普通"
+                            ? "#fffbeb"
+                            : "#fef2f2",
                       }}
                     >
                       <div style={styles.yearDayTop}>
-                        <div style={{ ...styles.yearDayNumber, color: isRed ? "#dc2626" : "#111827" }}>{item.day}</div>
-                        <div style={{ ...styles.yearDayBadge, background: badgeStyle.badgeBg, color: badgeStyle.badgeColor }}>
+                        <div style={{ ...styles.yearDayNumber, color: isRed ? "#dc2626" : "#111827" }}>
+                          {item.day}
+                        </div>
+                        <div
+                          style={{
+                            ...styles.yearDayBadge,
+                            background:
+                              item.result.level === "適合"
+                                ? "#dcfce7"
+                                : item.result.level === "普通"
+                                ? "#fef3c7"
+                                : "#fee2e2",
+                            color:
+                              item.result.level === "適合"
+                                ? "#166534"
+                                : item.result.level === "普通"
+                                ? "#92400e"
+                                : "#991b1b",
+                          }}
+                        >
                           {item.result.level}
                         </div>
                       </div>
-                      <div style={{ ...styles.yearDayWeek, color: isRed ? "#dc2626" : "#6b7280" }}>{item.weekday}</div>
-                      <div style={{ ...styles.yearDayLunar, color: isRed ? "#dc2626" : "#374151" }}>{item.data.lunarDate}</div>
+                      <div style={{ ...styles.yearDayWeek, color: isRed ? "#dc2626" : "#6b7280" }}>
+                        {item.weekday}
+                      </div>
+                      <div style={{ ...styles.yearDayLunar, color: isRed ? "#dc2626" : "#374151" }}>
+                        {item.data.lunarDate}
+                      </div>
                       {item.data.holidayName ? <div style={styles.yearDayHoliday}>{item.data.holidayName}</div> : null}
                       {item.data.solarTerm ? <div style={styles.yearDaySolarTerm}>{item.data.solarTerm}</div> : null}
                       <div style={styles.yearDayText}>{item.result.title}</div>
@@ -619,31 +753,16 @@ export default function App() {
   );
 }
 
-function getResultBadgeStyle(level) {
-  if (level === "適合") {
-    return {
-      borderColor: "#86efac",
-      background: "#f0fdf4",
-      badgeBg: "#dcfce7",
-      badgeColor: "#166534",
-    };
-  }
-
-  if (level === "不建議") {
-    return {
-      borderColor: "#fca5a5",
-      background: "#fef2f2",
-      badgeBg: "#fee2e2",
-      badgeColor: "#991b1b",
-    };
-  }
-
-  return {
-    borderColor: "#fcd34d",
-    background: "#fffbeb",
-    badgeBg: "#fef3c7",
-    badgeColor: "#92400e",
-  };
+function InfoItem({ icon, label, value }) {
+  return (
+    <div style={styles.infoItem}>
+      <div style={styles.infoLabel}>
+        <span style={styles.infoIcon}>{icon}</span>
+        <span>{label}</span>
+      </div>
+      <div style={styles.infoValue}>{value}</div>
+    </div>
+  );
 }
 
 function buildExportText(year, month, purpose, luckyDays) {
@@ -663,7 +782,6 @@ function buildExportText(year, month, purpose, luckyDays) {
 
   return lines.join("\n");
 }
-
 
 function buildYearOptions(currentYear) {
   const startYear = 2000;
@@ -756,7 +874,7 @@ function getTaiwanHolidayName(dateStr, lunar) {
   if (lunarMonth === 9 && lunarDay === 9) return "重陽節";
   if (lunarMonth === 12 && lunarDay === 8) return "臘八";
   if (lunarMonth === 12 && lunarDay === 24) return "送神";
-  if (lunarMonth === 12 && lunarDay >= 29) return "除夕";
+  if (lunarMonth === 12 && lunarDay === 30) return "除夕";
 
   return "";
 }
@@ -803,13 +921,17 @@ function getRealHuangliData(dateStr) {
     weekday: getWeekday(dateStr),
     lunarDate: toTwText(`${lunar.getMonthInChinese()}月${lunar.getDayInChinese()}`),
     zodiac: toTwText(`${lunar.getDayShengXiao()}日沖${chong || "—"}`),
-    wuxing: toTwText(nayin || (eightChar && eightChar.getYearWuXing ? eightChar.getYearWuXing() : "—")),
+    wuxing: toTwText(
+      nayin || (eightChar && eightChar.getYearWuXing ? eightChar.getYearWuXing() : "—")
+    ),
     solarTerm: toTwText(jie || qi || ""),
     holidayName: toTwText(holidayName || ""),
     isWeekend,
     fortune: yi.length >= ji.length ? "吉" : "平",
     clash: toTwText(`${chong || "—"}・${sha || "—"}`),
-    taishen: toTwText(`${dayPositionTai || ""}${dayPositionDesc ? `（${dayPositionDesc}）` : ""}` || "—"),
+    taishen: toTwText(
+      `${dayPositionTai || ""}${dayPositionDesc ? `（${dayPositionDesc}）` : ""}` || "—"
+    ),
     zhishen: toTwText(Array.isArray(jiShen) && jiShen.length ? jiShen.join("、") : "—"),
     jianchu: toTwText(zhiXing || "—"),
     pengzu: toTwText(`${pengzuGan} ${pengzuZhi}`.trim() || "—"),
@@ -856,7 +978,9 @@ function buildGoodHours(lunar) {
       level: toTwText(luckMap[zhi] || "吉"),
     }));
 
-  return result.length ? result : [{ time: "—", desc: "此日未取得吉時資料", level: "—" }];
+  return result.length
+    ? result
+    : [{ time: "—", desc: "此日未取得吉時資料", level: "—" }];
 }
 
 function containsAny(list, keywords) {
@@ -872,12 +996,26 @@ function evaluatePurpose(data, purpose) {
     const hasBad = containsAny(bad, ["嫁娶", "破土", "安葬"]);
 
     if (hasGood && !hasBad) {
-      return { level: "適合", title: "適合結婚", description: "宜中包含婚嫁相關項目，且忌中無明顯衝突。" };
+      return {
+        level: "適合",
+        title: "適合結婚",
+        description: "宜中包含婚嫁相關項目，且忌中無明顯衝突。",
+      };
     }
+
     if (!hasGood && hasBad) {
-      return { level: "不建議", title: "不建議結婚", description: "忌中有婚嫁衝突，較不適合安排。" };
+      return {
+        level: "不建議",
+        title: "不建議結婚",
+        description: "忌中有婚嫁衝突，較不適合安排。",
+      };
     }
-    return { level: "普通", title: "可列入參考", description: "沒有明顯大凶，但婚嫁吉象不算特別強。" };
+
+    return {
+      level: "普通",
+      title: "可列入參考",
+      description: "沒有明顯大凶，但婚嫁吉象不算特別強。",
+    };
   }
 
   if (purpose === "moving") {
@@ -885,31 +1023,59 @@ function evaluatePurpose(data, purpose) {
     const hasBad = containsAny(bad, ["入宅", "移徙", "動土", "安門"]);
 
     if (hasGood && !hasBad) {
-      return { level: "適合", title: "適合搬家", description: "宜中對搬家入宅有利，忌中衝突少。" };
+      return {
+        level: "適合",
+        title: "適合搬家",
+        description: "宜中對搬家入宅有利，忌中衝突少。",
+      };
     }
+
     if (!hasGood && hasBad) {
-      return { level: "不建議", title: "不建議搬家", description: "忌中與搬家用途有明顯衝突。" };
+      return {
+        level: "不建議",
+        title: "不建議搬家",
+        description: "忌中與搬家用途有明顯衝突。",
+      };
     }
-    return { level: "普通", title: "可列入參考", description: "沒有大衝突，但也不是最理想日期。" };
+
+    return {
+      level: "普通",
+      title: "可列入參考",
+      description: "沒有大衝突，但也不是最理想日期。",
+    };
   }
 
   const hasGood = containsAny(good, ["開市", "交易", "立券", "納財", "開工"]);
   const hasBad = containsAny(bad, ["開市", "交易", "詞訟", "訴訟"]);
 
   if (hasGood && !hasBad) {
-    return { level: "適合", title: "適合開工", description: "宜中包含商務與開工相關項目，整體有利。" };
+    return {
+      level: "適合",
+      title: "適合開工",
+      description: "宜中包含商務與開工相關項目，整體有利。",
+    };
   }
+
   if (!hasGood && hasBad) {
-    return { level: "不建議", title: "不建議開工", description: "忌中對商務用途較不利。" };
+    return {
+      level: "不建議",
+      title: "不建議開工",
+      description: "忌中對商務用途較不利。",
+    };
   }
-  return { level: "普通", title: "可列入參考", description: "商務吉象普通，可做備選日期。" };
+
+  return {
+    level: "普通",
+    title: "可列入參考",
+    description: "商務吉象普通，可做備選日期。",
+  };
 }
 
 const styles = {
   page: {
     minHeight: "100vh",
     background: "linear-gradient(180deg, #fff7ed 0%, #fef2f2 100%)",
-    padding: "12px",
+    padding: "24px",
     fontFamily: "Arial, 'Microsoft JhengHei', sans-serif",
     boxSizing: "border-box",
   },
@@ -917,58 +1083,40 @@ const styles = {
     maxWidth: "1200px",
     margin: "0 auto",
   },
-  lineNotice: {
-    marginBottom: "12px",
-    padding: "12px 14px",
-    background: "#fff7ed",
-    border: "1px solid #fdba74",
-    borderRadius: "12px",
-    color: "#9a3412",
-    fontSize: "14px",
-    lineHeight: 1.6,
-  },
   header: {
     textAlign: "center",
-    marginBottom: "16px",
-    padding: "20px 16px",
+    marginBottom: "24px",
+    padding: "32px 20px",
     background: "#ffffff",
-    borderRadius: "20px",
+    borderRadius: "24px",
     boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
   },
   title: {
     margin: 0,
-    fontSize: "clamp(30px, 8vw, 58px)",
+    fontSize: "58px",
     color: "#b91c1c",
     fontWeight: "bold",
-    lineHeight: 1.15,
-    wordBreak: "break-word",
   },
   subtitle: {
     marginTop: "12px",
     color: "#6b7280",
-    fontSize: "clamp(16px, 4.5vw, 22px)",
-    lineHeight: 1.4,
-    wordBreak: "break-word",
+    fontSize: "22px",
   },
   card: {
     background: "#ffffff",
     borderRadius: "20px",
-    padding: "20px",
+    padding: "24px",
     marginBottom: "20px",
     boxShadow: "0 8px 24px rgba(0,0,0,0.06)",
   },
   exportCard: {
     border: "2px solid #bfdbfe",
   },
-  resultCard: {
-    border: "2px solid #fde68a",
-  },
   sectionTitle: {
-    fontSize: "clamp(24px, 7vw, 30px)",
+    fontSize: "30px",
     fontWeight: "bold",
     marginBottom: "18px",
     color: "#1f2937",
-    lineHeight: 1.25,
   },
   controlGrid: {
     display: "grid",
@@ -981,25 +1129,15 @@ const styles = {
     gap: "10px",
   },
   label: {
-    fontSize: "clamp(16px, 4.5vw, 20px)",
+    fontSize: "20px",
     color: "#374151",
   },
   select: {
-    fontSize: "clamp(16px, 5vw, 18px)",
-    padding: "12px 14px",
+    fontSize: "18px",
+    padding: "10px 14px",
     borderRadius: "10px",
     border: "1px solid #d1d5db",
     background: "#fff",
-  },
-  supportNote: {
-    marginTop: "14px",
-    padding: "12px 14px",
-    background: "#eff6ff",
-    border: "1px solid #bfdbfe",
-    borderRadius: "12px",
-    color: "#1d4ed8",
-    fontSize: "15px",
-    lineHeight: 1.6,
   },
   exportSummary: {
     display: "flex",
@@ -1014,7 +1152,7 @@ const styles = {
     color: "#1d4ed8",
     padding: "12px 16px",
     borderRadius: "999px",
-    fontSize: "clamp(16px, 4.5vw, 20px)",
+    fontSize: "20px",
     fontWeight: "bold",
   },
   exportActions: {
@@ -1028,7 +1166,7 @@ const styles = {
     border: "none",
     borderRadius: "10px",
     padding: "12px 18px",
-    fontSize: "16px",
+    fontSize: "18px",
     cursor: "pointer",
   },
   secondaryButton: {
@@ -1037,14 +1175,24 @@ const styles = {
     border: "1px solid #d1d5db",
     borderRadius: "10px",
     padding: "12px 18px",
-    fontSize: "16px",
+    fontSize: "18px",
     cursor: "pointer",
   },
   copyMessage: {
     marginBottom: "12px",
     color: "#166534",
-    fontSize: "16px",
+    fontSize: "17px",
     fontWeight: "bold",
+  },
+  supportNote: {
+    marginTop: "14px",
+    padding: "12px 14px",
+    background: "#eff6ff",
+    border: "1px solid #bfdbfe",
+    borderRadius: "12px",
+    color: "#1d4ed8",
+    fontSize: "16px",
+    lineHeight: 1.6,
   },
   weekdayHeader: {
     display: "grid",
@@ -1128,87 +1276,13 @@ const styles = {
     color: "#4b5563",
     lineHeight: 1.5,
   },
-  mobileCalendarList: {
-    display: "grid",
-    gap: "14px",
-  },
-  mobileDayCard: {
-    width: "100%",
-    border: "2px solid #e5e7eb",
+  resultCard: {
+    border: "2px solid #fde68a",
+    background: "#ffffff",
     borderRadius: "20px",
-    padding: "16px",
-    textAlign: "left",
-    cursor: "pointer",
-    boxSizing: "border-box",
-    display: "flex",
-    alignItems: "stretch",
-    justifyContent: "space-between",
-    gap: "14px",
-  },
-  mobileDayCardActive: {
-    boxShadow: "0 0 0 3px rgba(185, 28, 28, 0.15)",
-  },
-  mobileDayLeft: {
-    flex: 1,
-    minWidth: 0,
-  },
-  mobileDayRight: {
-    width: "110px",
-    display: "flex",
-    flexDirection: "column",
-    justifyContent: "space-between",
-    alignItems: "flex-end",
-    textAlign: "right",
-  },
-  mobileDayTopRow: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: "8px",
-    gap: "10px",
-  },
-  mobileDayNumber: {
-    fontSize: "34px",
-    fontWeight: "bold",
-    lineHeight: 1,
-  },
-  mobileDayBadge: {
-    padding: "6px 10px",
-    borderRadius: "999px",
-    fontSize: "14px",
-    fontWeight: "bold",
-    whiteSpace: "nowrap",
-  },
-  mobileDayWeek: {
-    fontSize: "16px",
-    marginBottom: "6px",
-  },
-  mobileDayLunar: {
-    fontSize: "20px",
-    fontWeight: "bold",
-    marginBottom: "8px",
-  },
-  mobileDayHoliday: {
-    fontSize: "15px",
-    fontWeight: "bold",
-    color: "#dc2626",
-    marginBottom: "4px",
-  },
-  mobileDaySolarTerm: {
-    fontSize: "15px",
-    fontWeight: "bold",
-    color: "#2563eb",
-    marginBottom: "4px",
-  },
-  mobileDayResult: {
-    fontSize: "18px",
-    fontWeight: "bold",
-    color: "#374151",
-    lineHeight: 1.45,
-  },
-  mobileDayHint: {
-    fontSize: "13px",
-    color: "#6b7280",
+    padding: "24px",
+    marginBottom: "20px",
+    boxShadow: "0 8px 24px rgba(0,0,0,0.06)",
   },
   resultTop: {
     display: "flex",
@@ -1228,7 +1302,7 @@ const styles = {
     flex: 1,
   },
   resultTitle: {
-    fontSize: "clamp(22px, 6vw, 28px)",
+    fontSize: "28px",
     fontWeight: "bold",
     color: "#111827",
     marginBottom: "8px",
@@ -1244,6 +1318,134 @@ const styles = {
     color: "#7c2d12",
     fontWeight: "bold",
   },
+  infoGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))",
+    gap: "16px",
+  },
+  infoItem: {
+    background: "#f9fafb",
+    borderRadius: "16px",
+    padding: "18px",
+    border: "1px solid #ececec",
+  },
+  infoLabel: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    color: "#6b7280",
+    fontSize: "18px",
+    marginBottom: "10px",
+  },
+  infoIcon: {
+    fontSize: "22px",
+  },
+  infoValue: {
+    fontSize: "24px",
+    fontWeight: "bold",
+    color: "#374151",
+    lineHeight: 1.4,
+  },
+  yijiWrap: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
+    gap: "20px",
+    marginBottom: "20px",
+  },
+  yijiCard: {
+    borderRadius: "20px",
+    padding: "24px",
+    boxShadow: "0 8px 24px rgba(0,0,0,0.06)",
+  },
+  yiCard: {
+    background: "#ecfdf5",
+  },
+  jiCard: {
+    background: "#fef2f2",
+  },
+  yijiTitle: {
+    fontSize: "40px",
+    marginTop: 0,
+    marginBottom: "16px",
+    textAlign: "center",
+  },
+  tagWrap: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "12px",
+    justifyContent: "center",
+  },
+  goodTag: {
+    background: "#ffffff",
+    color: "#0f766e",
+    padding: "10px 16px",
+    borderRadius: "999px",
+    fontSize: "20px",
+    boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+  },
+  badTag: {
+    background: "#ffffff",
+    color: "#b91c1c",
+    padding: "10px 16px",
+    borderRadius: "999px",
+    fontSize: "20px",
+    boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+  },
+  hourList: {
+    display: "grid",
+    gap: "14px",
+  },
+  hourItem: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: "16px",
+    padding: "18px",
+    borderRadius: "16px",
+    background: "#fff7ed",
+    border: "1px solid #fed7aa",
+  },
+  hourTime: {
+    fontSize: "24px",
+    fontWeight: "bold",
+    color: "#7c2d12",
+  },
+  hourDesc: {
+    fontSize: "18px",
+    color: "#6b7280",
+    marginTop: "6px",
+  },
+  hourBadge: {
+    background: "#f59e0b",
+    color: "#fff",
+    padding: "10px 16px",
+    borderRadius: "999px",
+    fontSize: "18px",
+    fontWeight: "bold",
+    whiteSpace: "nowrap",
+  },
+  advancedGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))",
+    gap: "16px",
+  },
+  advancedItem: {
+    background: "#f9fafb",
+    borderRadius: "16px",
+    padding: "18px",
+    border: "1px solid #ececec",
+  },
+  advancedLabel: {
+    color: "#6b7280",
+    fontSize: "18px",
+    marginBottom: "10px",
+  },
+  advancedValue: {
+    color: "#111827",
+    fontSize: "24px",
+    fontWeight: "bold",
+    lineHeight: 1.5,
+  },
   pdfHiddenArea: {
     position: "fixed",
     left: "-99999px",
@@ -1258,7 +1460,7 @@ const styles = {
     color: "#111827",
     padding: "24px",
     boxSizing: "border-box",
-    fontFamily: "'Microsoft JhengHei', 'PingFang TC', 'Noto Sans TC', sans-serif",
+    fontFamily: "'Microsoft JhengHei', Arial, sans-serif",
   },
   pdfHeader: {
     marginBottom: "10px",
@@ -1399,7 +1601,6 @@ const styles = {
     fontSize: "34px",
     fontWeight: "bold",
     marginTop: "12px",
-    lineHeight: 1.5,
   },
   coverBadge: {
     alignSelf: "flex-start",
