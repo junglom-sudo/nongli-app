@@ -919,12 +919,12 @@ const styles = {
   },
   lineNotice: {
     marginBottom: "12px",
-    padding: "12px 14px",
+    padding: "10px 12px",
     background: "#fff7ed",
     border: "1px solid #fdba74",
     borderRadius: "12px",
     color: "#9a3412",
-    fontSize: "14px",
+    fontSize: "13px",
     lineHeight: 1.6,
   },
   header: {
